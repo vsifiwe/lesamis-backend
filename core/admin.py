@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.utils.translation import gettext_lazy as _
 
-from .models import ContributionCycle, FundAccount, Member, MemberShareAccount, User
+from .models import ContributionCycle, FundAccount, Member, MemberContributionObligation, MemberShareAccount, User
 
 
 @admin.register(User)
@@ -52,6 +52,14 @@ class ContributionCycleAdmin(admin.ModelAdmin):
 class FundAccountAdmin(admin.ModelAdmin):
     list_display  = ('code', 'name', 'allow_negative', 'is_active')
     list_filter   = ('is_active', 'allow_negative')
+    readonly_fields = ('created_at', 'updated_at')
+
+
+@admin.register(MemberContributionObligation)
+class MemberContributionObligationAdmin(admin.ModelAdmin):
+    list_display   = ('member', 'contribution_cycle', 'total_amount_expected', 'status')
+    list_filter    = ('status', 'contribution_cycle__year')
+    search_fields  = ('member__first_name', 'member__last_name', 'member__member_number')
     readonly_fields = ('created_at', 'updated_at')
 
 
