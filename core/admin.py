@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.utils.translation import gettext_lazy as _
 
-from .models import Member, User
+from .models import ContributionCycle, FundAccount, Member, MemberShareAccount, User
 
 
 @admin.register(User)
@@ -38,3 +38,25 @@ class MemberAdmin(admin.ModelAdmin):
     search_fields = ('member_number', 'first_name', 'last_name', 'email')
     ordering      = ('-created_at',)
     readonly_fields = ('member_number', 'created_at', 'updated_at')
+
+
+@admin.register(ContributionCycle)
+class ContributionCycleAdmin(admin.ModelAdmin):
+    list_display  = ('__str__', 'due_date', 'late_penalty_start_date', 'extra_penalty_start_date', 'status')
+    list_filter   = ('status', 'year')
+    ordering      = ('-year', '-month')
+    readonly_fields = ('created_at', 'updated_at')
+
+
+@admin.register(FundAccount)
+class FundAccountAdmin(admin.ModelAdmin):
+    list_display  = ('code', 'name', 'allow_negative', 'is_active')
+    list_filter   = ('is_active', 'allow_negative')
+    readonly_fields = ('created_at', 'updated_at')
+
+
+@admin.register(MemberShareAccount)
+class MemberShareAccountAdmin(admin.ModelAdmin):
+    list_display  = ('member', 'share_count', 'share_unit_value', 'total_value')
+    search_fields = ('member__first_name', 'member__last_name', 'member__member_number')
+    readonly_fields = ('created_at', 'updated_at')

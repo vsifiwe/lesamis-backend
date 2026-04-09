@@ -1,7 +1,7 @@
 from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
 
-from .models import Member, User
+from .models import Member, MemberShareAccount, User
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -62,4 +62,23 @@ class CreateMemberSerializer(serializers.ModelSerializer):
             role=User.Role.VIEWER,
             member=member,
         )
+        MemberShareAccount.objects.create(member=member)
         return member
+
+
+class MemberShareAccountSerializer(serializers.ModelSerializer):
+    total_value = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model  = MemberShareAccount
+        fields = [
+            'id', 'member', 'share_count', 'share_unit_value',
+            'total_value', 'created_at', 'updated_at',
+        ]
+        read_only_fields = ['id', 'total_value', 'created_at', 'updated_at']
+
+
+class AdjustSharesSerializer(serializers.Serializer):
+    action    = serializers.ChoiceField(choices=['INCREASE', 'DECREASE'])
+    member_id = serializers.UUIDField()
+    amount    = serializers.IntegerField(min_value=1)

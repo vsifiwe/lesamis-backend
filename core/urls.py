@@ -2,7 +2,7 @@ from django.urls import path
 from rest_framework_simplejwt.views import TokenRefreshView
 
 from .tokens import MemberTokenObtainPairView
-from .views import MemberDeactivateView, MemberDetailView, MemberListCreateView
+from .views import MemberDeactivateView, MemberDetailView, MemberListCreateView, ShareAdjustView
 
 urlpatterns = [
     # Auth
@@ -13,4 +13,7 @@ urlpatterns = [
     path('members/', MemberListCreateView.as_view(), name='member_list_create'),
     path('members/<uuid:pk>/', MemberDetailView.as_view(), name='member_detail'),
     path('members/<uuid:pk>/deactivate/', MemberDeactivateView.as_view(), name='member_deactivate'),
+
+    # Shares
+    path('shares/adjust/', ShareAdjustView.as_view(), name='share_adjust'),
 ]
