@@ -1,5 +1,6 @@
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from drf_yasg.utils import swagger_auto_schema
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -17,6 +18,15 @@ class MemberListCreateView(APIView):
         serializer = MemberSerializer(members, many=True)
         return Response(serializer.data)
 
+    @swagger_auto_schema(
+        request_body=CreateMemberSerializer,
+        responses={201: MemberSerializer},
+        operation_summary='Create a member',
+        operation_description=(
+            'Creates a new club member and automatically provisions a linked User account '
+            'with the `viewer` role using the supplied `default_password`.'
+        ),
+    )
     def post(self, request):
         serializer = CreateMemberSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)

@@ -43,9 +43,23 @@ class MemberSerializer(serializers.ModelSerializer):
 
 
 class CreateMemberSerializer(serializers.ModelSerializer):
+    default_password = serializers.CharField(write_only=True, validators=[validate_password])
+
     class Meta:
         model  = Member
-        fields = ['first_name', 'last_name', 'phone', 'email', 'join_date']
+        fields = ['first_name', 'last_name', 'phone', 'email', 'join_date', 'default_password']
+        extra_kwargs = {
+            'email': {'required': True, 'allow_blank': False},
+        }
 
     def create(self, validated_data):
-        return Member.objects.create(**validated_data)
+        password = validated_data.pop('default_password')
+        member = Member.objects.create(**validated_data)
+        User.objects.create_user(
+            email=member.email,
+            password=password,
+            full_name=member.get_full_name(),
+            role=User.Role.VIEWER,
+            member=member,
+        )
+        return member
