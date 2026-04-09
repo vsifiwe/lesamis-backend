@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.utils.translation import gettext_lazy as _
 
-from .models import ContributionCycle, FundAccount, Member, MemberContributionObligation, MemberShareAccount, User
+from .models import ContributionCycle, FundAccount, Member, MemberContributionObligation, MemberShareAccount, SystemConfig, User
 
 
 @admin.register(User)
@@ -38,6 +38,29 @@ class MemberAdmin(admin.ModelAdmin):
     search_fields = ('member_number', 'first_name', 'last_name', 'email')
     ordering      = ('-created_at',)
     readonly_fields = ('member_number', 'created_at', 'updated_at')
+
+
+@admin.register(SystemConfig)
+class SystemConfigAdmin(admin.ModelAdmin):
+    fieldsets = (
+        ('Contribution Cycle Rules', {
+            'fields': ('cycle_due_day', 'late_penalty_start_day', 'extra_penalty_start_day'),
+        }),
+        ('Fixed Contribution Amounts', {
+            'fields': ('social_amount', 'social_plus_amount'),
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',),
+        }),
+    )
+    readonly_fields = ('created_at', 'updated_at')
+
+    def has_add_permission(self, request):
+        return not SystemConfig.objects.exists()
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(ContributionCycle)
