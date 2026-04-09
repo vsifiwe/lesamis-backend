@@ -5,12 +5,12 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .models import Member
-from .permissions import IsAdminMember
+from .permissions import IsAdminUser
 from .serializers import CreateMemberSerializer, MemberSerializer
 
 
 class MemberListCreateView(APIView):
-    permission_classes = [IsAdminMember]
+    permission_classes = [IsAdminUser]
 
     def get(self, request):
         members = Member.objects.all()
@@ -25,7 +25,7 @@ class MemberListCreateView(APIView):
 
 
 class MemberDetailView(APIView):
-    permission_classes = [IsAdminMember]
+    permission_classes = [IsAdminUser]
 
     def get(self, request, pk):
         member = get_object_or_404(Member, pk=pk)
@@ -33,7 +33,7 @@ class MemberDetailView(APIView):
 
 
 class MemberDeactivateView(APIView):
-    permission_classes = [IsAdminMember]
+    permission_classes = [IsAdminUser]
 
     def patch(self, request, pk):
         member = get_object_or_404(Member, pk=pk)
@@ -44,6 +44,5 @@ class MemberDeactivateView(APIView):
             )
         member.status = Member.Status.EXITED
         member.exit_date = member.exit_date or timezone.now().date()
-        member.is_active = False
-        member.save(update_fields=['status', 'exit_date', 'is_active'])
+        member.save(update_fields=['status', 'exit_date', 'updated_at'])
         return Response(MemberSerializer(member).data)

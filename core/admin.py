@@ -1,31 +1,40 @@
 from django.contrib import admin
-from django.contrib.auth.admin import UserAdmin
+from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.utils.translation import gettext_lazy as _
 
-from .models import Member
+from .models import Member, User
 
 
-@admin.register(Member)
-class MemberAdmin(UserAdmin):
-    model = Member
-    list_display  = ('email', 'first_name', 'last_name', 'role', 'status', 'is_staff')
-    list_filter   = ('role', 'status', 'is_staff', 'is_superuser')
-    search_fields = ('email', 'first_name', 'last_name', 'national_id')
+@admin.register(User)
+class UserAdmin(BaseUserAdmin):
+    model         = User
+    list_display  = ('email', 'full_name', 'role', 'is_active', 'is_staff')
+    list_filter   = ('role', 'is_active', 'is_staff', 'is_superuser')
+    search_fields = ('email', 'full_name')
     ordering      = ('-created_at',)
 
     fieldsets = (
         (None,             {'fields': ('email', 'password')}),
-        (_('Personal'),    {'fields': ('first_name', 'last_name', 'phone', 'national_id')}),
-        (_('Membership'),  {'fields': ('role', 'status', 'join_date', 'exit_date', 'suspended_date')}),
+        (_('Personal'),    {'fields': ('full_name',)}),
+        (_('Access'),      {'fields': ('role', 'member')}),
         (_('Permissions'), {'fields': ('is_active', 'is_staff', 'is_superuser', 'groups', 'user_permissions')}),
-        (_('Timestamps'),  {'fields': ('created_at', 'updated_at'), 'classes': ('collapse',)}),
+        (_('Timestamps'),  {'fields': ('last_login', 'created_at', 'updated_at'), 'classes': ('collapse',)}),
     )
 
     add_fieldsets = (
         (None, {
             'classes': ('wide',),
-            'fields': ('email', 'first_name', 'last_name', 'password1', 'password2', 'role', 'status'),
+            'fields': ('email', 'full_name', 'password1', 'password2', 'role'),
         }),
     )
 
-    readonly_fields = ('created_at', 'updated_at')
+    readonly_fields = ('last_login', 'created_at', 'updated_at')
+
+
+@admin.register(Member)
+class MemberAdmin(admin.ModelAdmin):
+    list_display  = ('member_number', 'first_name', 'last_name', 'email', 'status', 'join_date')
+    list_filter   = ('status',)
+    search_fields = ('member_number', 'first_name', 'last_name', 'email')
+    ordering      = ('-created_at',)
+    readonly_fields = ('member_number', 'created_at', 'updated_at')
