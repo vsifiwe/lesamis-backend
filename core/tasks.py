@@ -23,12 +23,11 @@ def _next_month(year, month):
     return year, month + 1
 
 
-def _seconds_until_first_of_next_month():
-    """Compute how many seconds from now until midnight UTC on the 1st of next month."""
+def _first_of_next_month():
+    """Return a timezone-aware datetime for midnight UTC on the 1st of next month."""
     now = timezone.now()
     next_year, next_month = _next_month(now.year, now.month)
-    next_run = datetime.datetime(next_year, next_month, 1, tzinfo=datetime.timezone.utc)
-    return max(0, (next_run - now).total_seconds())
+    return datetime.datetime(next_year, next_month, 1, tzinfo=datetime.timezone.utc)
 
 
 @background()
@@ -37,7 +36,7 @@ def generate_monthly_cycle():
     config = SystemConfig.objects.first()
     if config is None:
         # No config yet — reschedule and wait.
-        generate_monthly_cycle(schedule=_seconds_until_first_of_next_month())
+        generate_monthly_cycle(schedule=_first_of_next_month())
         return
 
     today = timezone.now().date()
@@ -56,4 +55,4 @@ def generate_monthly_cycle():
         },
     )
 
-    generate_monthly_cycle(schedule=_seconds_until_first_of_next_month())
+    generate_monthly_cycle(schedule=_first_of_next_month())
