@@ -5,13 +5,16 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import ContributionReceipt, Member, MemberContributionObligation, MemberShareAccount
+from .models import ContributionReceipt, Loan, LoanProduct, Member, MemberContributionObligation, MemberShareAccount
 from .permissions import IsAdminUser
 from .serializers import (
     AdjustSharesSerializer,
     ContributionReceiptSerializer,
     CreateContributionReceiptSerializer,
+    CreateLoanSerializer,
     CreateMemberSerializer,
+    LoanProductSerializer,
+    LoanSerializer,
     MemberContributionObligationSerializer,
     MemberSerializer,
     MemberShareAccountSerializer,
@@ -148,6 +151,72 @@ class ContributionReceiptListCreateView(APIView):
                 .select_related('confirmed_by', 'created_by')
                 .prefetch_related('items__obligation__member')
                 .get(pk=receipt.pk)
+            ).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class LoanProductListCreateView(APIView):
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        products = LoanProduct.objects.all()
+        return Response(LoanProductSerializer(products, many=True).data)
+
+    @swagger_auto_schema(
+        request_body=LoanProductSerializer,
+        responses={201: LoanProductSerializer},
+        operation_summary='Create a loan product',
+    )
+    def post(self, request):
+        serializer = LoanProductSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class LoanProductArchiveView(APIView):
+    permission_classes = [IsAdminUser]
+
+    def patch(self, request, pk):
+        product = get_object_or_404(LoanProduct, pk=pk)
+        if not product.is_active:
+            return Response({'detail': 'Loan product is already archived.'}, status=status.HTTP_400_BAD_REQUEST)
+        product.is_active = False
+        product.save(update_fields=['is_active', 'updated_at'])
+        return Response(LoanProductSerializer(product).data)
+
+
+class LoanListCreateView(APIView):
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        loans = (
+            Loan.objects
+            .select_related('member', 'loan_product', 'created_by')
+            .all()
+        )
+        return Response(LoanSerializer(loans, many=True).data)
+
+    @swagger_auto_schema(
+        request_body=CreateLoanSerializer,
+        responses={201: LoanSerializer},
+        operation_summary='Issue a loan to a member',
+        operation_description=(
+            'Creates a loan for a member. '
+            'Snapshots the product\'s interest rate and duration. '
+            'Total repayment = principal × (1 + rate/100). '
+            'Monthly installment = total / duration_months. '
+            'Principal is capped at member share count × 10,000.'
+        ),
+    )
+    def post(self, request):
+        serializer = CreateLoanSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        loan = serializer.save(created_by=request.user)
+        return Response(
+            LoanSerializer(
+                Loan.objects.select_related('member', 'loan_product', 'created_by').get(pk=loan.pk)
             ).data,
             status=status.HTTP_201_CREATED,
         )

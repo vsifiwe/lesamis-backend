@@ -4,7 +4,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.utils import timezone
 from rest_framework import serializers
 
-from .models import ContributionReceipt, ContributionReceiptItem, Member, MemberContributionObligation, MemberShareAccount, Penalty, User
+from .models import ContributionReceipt, ContributionReceiptItem, Loan, LoanProduct, Member, MemberContributionObligation, MemberShareAccount, Penalty, User
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -232,3 +232,107 @@ class CreateContributionReceiptSerializer(serializers.Serializer):
             receipt__isnull=True,
         ).update(receipt=receipt)
         return receipt
+
+
+# ---------------------------------------------------------------------------
+# Loan Products
+# ---------------------------------------------------------------------------
+
+class LoanProductSerializer(serializers.ModelSerializer):
+    class Meta:
+        model  = LoanProduct
+        fields = [
+            'id', 'name', 'duration_months', 'interest_rate_percent',
+            'is_active', 'notes', 'created_at', 'updated_at',
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+
+# ---------------------------------------------------------------------------
+# Loans
+# ---------------------------------------------------------------------------
+
+class LoanSerializer(serializers.ModelSerializer):
+    member_name        = serializers.SerializerMethodField()
+    member_number      = serializers.CharField(source='member.member_number', read_only=True)
+    loan_product_name  = serializers.CharField(source='loan_product.name', read_only=True)
+    created_by_email   = serializers.EmailField(source='created_by.email', read_only=True)
+
+    class Meta:
+        model  = Loan
+        fields = [
+            'id', 'member', 'member_number', 'member_name',
+            'loan_product', 'loan_product_name',
+            'principal_amount', 'interest_rate_percent_snapshot',
+            'duration_months_snapshot', 'total_repayment_amount',
+            'monthly_installment_amount', 'issued_date', 'first_due_date',
+            'status', 'notes', 'created_by', 'created_by_email',
+            'created_at', 'updated_at',
+        ]
+
+    def get_member_name(self, obj):
+        return obj.member.get_full_name()
+
+
+class CreateLoanSerializer(serializers.Serializer):
+    member_id      = serializers.UUIDField()
+    loan_product_id = serializers.UUIDField()
+    principal_amount = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=Decimal('0.01'))
+    issued_date    = serializers.DateField()
+    first_due_date = serializers.DateField()
+    notes          = serializers.CharField(required=False, allow_blank=True, default='')
+
+    def validate(self, data):
+        # Resolve member
+        try:
+            member = Member.objects.select_related('share_account').get(pk=data['member_id'])
+        except Member.DoesNotExist:
+            raise serializers.ValidationError({'member_id': 'Member does not exist.'})
+        if member.status != Member.Status.ACTIVE:
+            raise serializers.ValidationError({'member_id': 'Member is not active.'})
+        try:
+            share_account = member.share_account
+        except Member.share_account.RelatedObjectDoesNotExist:
+            raise serializers.ValidationError({'member_id': 'Member has no share account.'})
+
+        max_principal = share_account.share_count * 10_000
+        if data['principal_amount'] > max_principal:
+            raise serializers.ValidationError(
+                {'principal_amount': f'Principal exceeds maximum allowed ({max_principal}) based on member share count ({share_account.share_count}).'}
+            )
+
+        # Resolve loan product
+        try:
+            loan_product = LoanProduct.objects.get(pk=data['loan_product_id'])
+        except LoanProduct.DoesNotExist:
+            raise serializers.ValidationError({'loan_product_id': 'Loan product does not exist.'})
+        if not loan_product.is_active:
+            raise serializers.ValidationError({'loan_product_id': 'Loan product is not active.'})
+
+        data['_member'] = member
+        data['_loan_product'] = loan_product
+        return data
+
+    def create(self, validated_data):
+        member       = validated_data['_member']
+        loan_product = validated_data['_loan_product']
+        principal    = validated_data['principal_amount']
+        rate         = loan_product.interest_rate_percent
+        duration     = loan_product.duration_months
+
+        total   = (principal * (1 + rate / 100)).quantize(Decimal('0.01'))
+        monthly = (total / duration).quantize(Decimal('0.01'))
+
+        return Loan.objects.create(
+            member=member,
+            loan_product=loan_product,
+            principal_amount=principal,
+            interest_rate_percent_snapshot=rate,
+            duration_months_snapshot=duration,
+            total_repayment_amount=total,
+            monthly_installment_amount=monthly,
+            issued_date=validated_data['issued_date'],
+            first_due_date=validated_data['first_due_date'],
+            notes=validated_data['notes'],
+            created_by=validated_data['created_by'],
+        )

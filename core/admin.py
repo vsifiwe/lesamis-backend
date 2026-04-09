@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.utils.translation import gettext_lazy as _
 
-from .models import ContributionCycle, ContributionReceipt, ContributionReceiptItem, FundAccount, Member, MemberContributionObligation, MemberShareAccount, Penalty, SystemConfig, User
+from .models import ContributionCycle, ContributionReceipt, ContributionReceiptItem, FundAccount, Loan, LoanProduct, LoanRepayment, Member, MemberContributionObligation, MemberShareAccount, OtherCharge, Penalty, SystemConfig, User
 
 
 @admin.register(User)
@@ -61,6 +61,42 @@ class SystemConfigAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return False
+
+
+@admin.register(OtherCharge)
+class OtherChargeAdmin(admin.ModelAdmin):
+    list_display    = ('id', 'charge_type', 'direction', 'amount', 'charge_date', 'recorded_by')
+    list_filter     = ('charge_type', 'direction')
+    search_fields   = ('description',)
+    ordering        = ('-charge_date',)
+    readonly_fields = ('created_at', 'updated_at')
+
+
+@admin.register(LoanRepayment)
+class LoanRepaymentAdmin(admin.ModelAdmin):
+    list_display    = ('id', 'loan', 'amount_paid', 'paid_date', 'payment_method', 'recorded_by')
+    list_filter     = ('payment_method',)
+    search_fields   = ('loan__id',)
+    ordering        = ('-paid_date',)
+    readonly_fields = ('created_at', 'updated_at')
+
+
+@admin.register(Loan)
+class LoanAdmin(admin.ModelAdmin):
+    list_display    = ('id', 'member', 'loan_product', 'principal_amount', 'status', 'issued_date')
+    list_filter     = ('status', 'loan_product')
+    search_fields   = ('member__first_name', 'member__last_name', 'member__member_number')
+    ordering        = ('-created_at',)
+    readonly_fields = ('created_at', 'updated_at')
+
+
+@admin.register(LoanProduct)
+class LoanProductAdmin(admin.ModelAdmin):
+    list_display  = ('name', 'duration_months', 'interest_rate_percent', 'is_active')
+    list_filter   = ('is_active',)
+    search_fields = ('name',)
+    ordering      = ('name',)
+    readonly_fields = ('created_at', 'updated_at')
 
 
 @admin.register(ContributionCycle)
