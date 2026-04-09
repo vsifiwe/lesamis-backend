@@ -12,6 +12,7 @@ from .member_contribution_obligation import MemberContributionObligation
 from .member_share_account import MemberShareAccount
 from .other_charge import OtherCharge
 from .penalty import Penalty
+from .social_activity_record import SocialActivityRecord
 from .system_config import SystemConfig
 from .user import User
 
@@ -30,6 +31,7 @@ __all__ = [
     'MemberShareAccount',
     'OtherCharge',
     'Penalty',
+    'SocialActivityRecord',
     'SystemConfig',
     'User',
 ]

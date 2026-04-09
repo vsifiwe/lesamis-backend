@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.utils.translation import gettext_lazy as _
 
-from .models import ContributionCycle, ContributionReceipt, ContributionReceiptItem, FundAccount, Investment, InvestmentProfitEntry, Loan, LoanProduct, LoanRepayment, Member, MemberContributionObligation, MemberShareAccount, OtherCharge, Penalty, SystemConfig, User
+from .models import ContributionCycle, ContributionReceipt, ContributionReceiptItem, FundAccount, Investment, InvestmentProfitEntry, Loan, LoanProduct, LoanRepayment, Member, MemberContributionObligation, MemberShareAccount, OtherCharge, Penalty, SocialActivityRecord, SystemConfig, User
 
 
 @admin.register(User)
@@ -61,6 +61,15 @@ class SystemConfigAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return False
+
+
+@admin.register(SocialActivityRecord)
+class SocialActivityRecordAdmin(admin.ModelAdmin):
+    list_display    = ('name', 'category', 'fund_account', 'amount', 'activity_date', 'recorded_by')
+    list_filter     = ('category', 'fund_account')
+    search_fields   = ('name', 'description')
+    ordering        = ('-activity_date',)
+    readonly_fields = ('created_at', 'updated_at')
 
 
 @admin.register(OtherCharge)
