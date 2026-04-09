@@ -134,17 +134,6 @@ def generate_monthly_cycle():
     if created:
         _generate_obligations(cycle, config)
 
-    if month == 1:
-        prev_year, prev_month = year - 1, 12
-    else:
-        prev_year, prev_month = year, month - 1
-
-    ContributionCycle.objects.filter(
-        year=prev_year,
-        month=prev_month,
-        status=ContributionCycle.Status.OPEN,
-    ).update(status=ContributionCycle.Status.CLOSED)
-
     generate_monthly_cycle(schedule=_first_of_next_month())
 
 
