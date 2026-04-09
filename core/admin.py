@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.utils.translation import gettext_lazy as _
 
-from .models import ContributionCycle, ContributionReceipt, ContributionReceiptItem, FundAccount, Investment, InvestmentProfitEntry, Loan, LoanProduct, LoanRepayment, Member, MemberContributionObligation, MemberShareAccount, OtherCharge, Penalty, SocialActivityRecord, SystemConfig, User
+from .models import ContributionCycle, ContributionReceipt, ContributionReceiptItem, FundAccount, Investment, InvestmentProfitEntry, LedgerEntry, Loan, LoanProduct, LoanRepayment, Member, MemberContributionObligation, MemberShareAccount, OtherCharge, Penalty, SocialActivityRecord, SystemConfig, User
 
 
 @admin.register(User)
@@ -74,7 +74,7 @@ class SocialActivityRecordAdmin(admin.ModelAdmin):
 
 @admin.register(OtherCharge)
 class OtherChargeAdmin(admin.ModelAdmin):
-    list_display    = ('id', 'charge_type', 'direction', 'amount', 'charge_date', 'recorded_by')
+    list_display    = ('id', 'charge_type', 'fund_account', 'direction', 'amount', 'charge_date', 'recorded_by')
     list_filter     = ('charge_type', 'direction')
     search_fields   = ('description',)
     ordering        = ('-charge_date',)
@@ -97,6 +97,26 @@ class LoanAdmin(admin.ModelAdmin):
     search_fields   = ('member__first_name', 'member__last_name', 'member__member_number')
     ordering        = ('-created_at',)
     readonly_fields = ('created_at', 'updated_at')
+
+
+@admin.register(LedgerEntry)
+class LedgerEntryAdmin(admin.ModelAdmin):
+    list_display    = ('entry_type', 'direction', 'amount', 'fund_account', 'member', 'entry_date', 'reference_type')
+    list_filter     = ('entry_type', 'direction', 'fund_account')
+    search_fields   = ('reference_type', 'notes')
+    ordering        = ('-entry_date',)
+    readonly_fields = ('id', 'fund_account', 'member', 'entry_date', 'entry_type', 'amount',
+                       'direction', 'reference_id', 'reference_type', 'notes', 'recorded_by',
+                       'created_at', 'updated_at')
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(InvestmentProfitEntry)

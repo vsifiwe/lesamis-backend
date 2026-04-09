@@ -4,6 +4,7 @@ from rest_framework_simplejwt.views import TokenRefreshView
 from .tokens import MemberTokenObtainPairView
 from .views import (
     ContributionReceiptListCreateView,
+    FundAccountBalanceView,
     LoanListCreateView,
     LoanProductArchiveView,
     LoanProductListCreateView,
@@ -39,4 +40,7 @@ urlpatterns = [
 
     # Loans
     path('loans/', LoanListCreateView.as_view(), name='loan_list_create'),
+
+    # Fund balances
+    path('fund-accounts/balances/', FundAccountBalanceView.as_view(), name='fund_account_balances'),
 ]

@@ -231,6 +231,8 @@ class CreateContributionReceiptSerializer(serializers.Serializer):
             waived=False,
             receipt__isnull=True,
         ).update(receipt=receipt)
+        from .ledger_service import record_contribution_receipt
+        record_contribution_receipt(receipt, validated_data['created_by'])
         return receipt
 
 

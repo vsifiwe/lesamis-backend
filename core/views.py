@@ -1,3 +1,5 @@
+from django.db.models import DecimalField, Q, Sum
+from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from drf_yasg.utils import swagger_auto_schema
@@ -5,7 +7,7 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import ContributionReceipt, Loan, LoanProduct, Member, MemberContributionObligation, MemberShareAccount
+from .models import ContributionReceipt, FundAccount, Loan, LoanProduct, LedgerEntry, Member, MemberContributionObligation, MemberShareAccount
 from .permissions import IsAdminUser
 from .serializers import (
     AdjustSharesSerializer,
@@ -214,9 +216,42 @@ class LoanListCreateView(APIView):
         serializer = CreateLoanSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         loan = serializer.save(created_by=request.user)
+        from .ledger_service import record_loan_disbursement
+        record_loan_disbursement(loan, request.user)
         return Response(
             LoanSerializer(
                 Loan.objects.select_related('member', 'loan_product', 'created_by').get(pk=loan.pk)
             ).data,
             status=status.HTTP_201_CREATED,
         )
+
+
+class FundAccountBalanceView(APIView):
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        accounts = FundAccount.objects.annotate(
+            total_credits=Coalesce(
+                Sum('ledger_entries__amount', filter=Q(ledger_entries__direction=LedgerEntry.Direction.CREDIT)),
+                0,
+                output_field=DecimalField(),
+            ),
+            total_debits=Coalesce(
+                Sum('ledger_entries__amount', filter=Q(ledger_entries__direction=LedgerEntry.Direction.DEBIT)),
+                0,
+                output_field=DecimalField(),
+            ),
+        )
+
+        data = [
+            {
+                'id':            str(account.id),
+                'code':          account.code,
+                'name':          account.name,
+                'total_credits': account.total_credits,
+                'total_debits':  account.total_debits,
+                'balance':       account.total_credits - account.total_debits,
+            }
+            for account in accounts
+        ]
+        return Response(data)
