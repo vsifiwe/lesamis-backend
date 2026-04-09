@@ -9,6 +9,8 @@ class SystemConfig(models.Model):
     extra_penalty_start_day   = models.PositiveSmallIntegerField()
     social_amount             = models.PositiveIntegerField(default=2000)
     social_plus_amount        = models.PositiveIntegerField(default=3000)
+    late_penalty_amount       = models.PositiveIntegerField(default=0)  # per share
+    extra_penalty_amount      = models.PositiveIntegerField(default=0)  # per share
     created_at                = models.DateTimeField(auto_now_add=True)
     updated_at                = models.DateTimeField(auto_now=True)
 

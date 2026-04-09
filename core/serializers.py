@@ -4,7 +4,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.utils import timezone
 from rest_framework import serializers
 
-from .models import ContributionReceipt, ContributionReceiptItem, Member, MemberContributionObligation, MemberShareAccount, User
+from .models import ContributionReceipt, ContributionReceiptItem, Member, MemberContributionObligation, MemberShareAccount, Penalty, User
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -226,4 +226,9 @@ class CreateContributionReceiptSerializer(serializers.Serializer):
         MemberContributionObligation.objects.filter(id__in=obligation_ids).update(
             status=MemberContributionObligation.Status.CONFIRMED,
         )
+        Penalty.objects.filter(
+            contribution_obligation_id__in=obligation_ids,
+            waived=False,
+            receipt__isnull=True,
+        ).update(receipt=receipt)
         return receipt

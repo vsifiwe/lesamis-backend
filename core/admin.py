@@ -47,7 +47,7 @@ class SystemConfigAdmin(admin.ModelAdmin):
             'fields': ('cycle_due_day', 'late_penalty_start_day', 'extra_penalty_start_day'),
         }),
         ('Fixed Contribution Amounts', {
-            'fields': ('social_amount', 'social_plus_amount'),
+            'fields': ('social_amount', 'social_plus_amount', 'late_penalty_amount', 'extra_penalty_amount'),
         }),
         ('Timestamps', {
             'fields': ('created_at', 'updated_at'),
