@@ -1,7 +1,10 @@
+from decimal import Decimal
+
 from django.contrib.auth.password_validation import validate_password
+from django.utils import timezone
 from rest_framework import serializers
 
-from .models import Member, MemberShareAccount, User
+from .models import ContributionReceipt, ContributionReceiptItem, Member, MemberContributionObligation, MemberShareAccount, User
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -32,14 +35,22 @@ class CreateUserSerializer(serializers.ModelSerializer):
 
 
 class MemberSerializer(serializers.ModelSerializer):
+    share_count = serializers.SerializerMethodField()
+
     class Meta:
         model  = Member
         fields = [
             'id', 'member_number', 'first_name', 'last_name',
             'phone', 'email', 'status', 'join_date', 'exit_date',
-            'created_at', 'updated_at',
+            'share_count', 'created_at', 'updated_at',
         ]
         read_only_fields = ['id', 'member_number', 'created_at', 'updated_at']
+
+    def get_share_count(self, obj):
+        try:
+            return obj.share_account.share_count
+        except Member.share_account.RelatedObjectDoesNotExist:
+            return None
 
 
 class CreateMemberSerializer(serializers.ModelSerializer):
@@ -82,3 +93,137 @@ class AdjustSharesSerializer(serializers.Serializer):
     action    = serializers.ChoiceField(choices=['INCREASE', 'DECREASE'])
     member_id = serializers.UUIDField()
     amount    = serializers.IntegerField(min_value=1)
+
+
+# ---------------------------------------------------------------------------
+# Obligations
+# ---------------------------------------------------------------------------
+
+class MemberContributionObligationSerializer(serializers.ModelSerializer):
+    member_number = serializers.CharField(source='member.member_number', read_only=True)
+    member_name   = serializers.SerializerMethodField()
+    cycle         = serializers.StringRelatedField(source='contribution_cycle')
+
+    class Meta:
+        model  = MemberContributionObligation
+        fields = [
+            'id', 'member', 'member_number', 'member_name',
+            'contribution_cycle', 'cycle',
+            'share_count_snapshot', 'share_unit_value_snapshot',
+            'capital_amount_expected', 'social_amount_expected',
+            'social_plus_amount_expected', 'total_amount_expected',
+            'status', 'created_at', 'updated_at',
+        ]
+
+    def get_member_name(self, obj):
+        return obj.member.get_full_name()
+
+
+# ---------------------------------------------------------------------------
+# Receipts
+# ---------------------------------------------------------------------------
+
+class ContributionReceiptItemSerializer(serializers.ModelSerializer):
+    member_number = serializers.CharField(source='obligation.member.member_number', read_only=True)
+    member_name   = serializers.SerializerMethodField()
+
+    class Meta:
+        model  = ContributionReceiptItem
+        fields = ['id', 'obligation', 'member_number', 'member_name', 'amount_applied', 'created_at']
+
+    def get_member_name(self, obj):
+        return obj.obligation.member.get_full_name()
+
+
+class ContributionReceiptSerializer(serializers.ModelSerializer):
+    items             = ContributionReceiptItemSerializer(many=True, read_only=True)
+    confirmed_by_email = serializers.EmailField(source='confirmed_by.email', read_only=True, default=None)
+    created_by_email  = serializers.EmailField(source='created_by.email', read_only=True)
+
+    class Meta:
+        model  = ContributionReceipt
+        fields = [
+            'id', 'amount_received', 'received_date', 'payment_method',
+            'status', 'confirmed_by', 'confirmed_by_email', 'confirmed_at',
+            'rejection_reason', 'notes',
+            'created_by', 'created_by_email',
+            'created_at', 'updated_at',
+            'items',
+        ]
+
+
+class _ReceiptItemWriteSerializer(serializers.Serializer):
+    obligation_id  = serializers.UUIDField()
+    amount_applied = serializers.DecimalField(max_digits=10, decimal_places=2, min_value=Decimal('0.01'))
+
+
+class CreateContributionReceiptSerializer(serializers.Serializer):
+    amount_received = serializers.DecimalField(max_digits=10, decimal_places=2, min_value=Decimal('0.01'))
+    received_date   = serializers.DateField()
+    payment_method  = serializers.ChoiceField(choices=ContributionReceipt.PaymentMethod.choices)
+    notes           = serializers.CharField(required=False, allow_blank=True, default='')
+    items           = _ReceiptItemWriteSerializer(many=True)
+
+    def validate_items(self, items):
+        if not items:
+            raise serializers.ValidationError('At least one item is required.')
+        obligation_ids = [item['obligation_id'] for item in items]
+        if len(obligation_ids) != len(set(str(i) for i in obligation_ids)):
+            raise serializers.ValidationError('Duplicate obligation ids are not allowed.')
+        already_paid = ContributionReceiptItem.objects.filter(
+            obligation_id__in=obligation_ids
+        ).values_list('obligation_id', flat=True)
+        if already_paid:
+            raise serializers.ValidationError(
+                f'The following obligations already have a receipt: {[str(i) for i in already_paid]}'
+            )
+        obligations = {
+            str(o.id): o
+            for o in MemberContributionObligation.objects.filter(id__in=obligation_ids)
+        }
+        errors = []
+        for item in items:
+            obligation = obligations.get(str(item['obligation_id']))
+            if obligation is None:
+                errors.append(f'Obligation {item["obligation_id"]} does not exist.')
+                continue
+            if item['amount_applied'] != obligation.total_amount_expected:
+                errors.append(
+                    f'Obligation {item["obligation_id"]}: amount_applied ({item["amount_applied"]}) '
+                    f'must equal total_amount_expected ({obligation.total_amount_expected}).'
+                )
+        if errors:
+            raise serializers.ValidationError(errors)
+        return items
+
+    def validate(self, data):
+        items = data.get('items', [])
+        total_applied = sum(item['amount_applied'] for item in items)
+        if total_applied > data['amount_received']:
+            raise serializers.ValidationError(
+                f'Total items amount ({total_applied}) exceeds amount received ({data["amount_received"]}).'
+            )
+        return data
+
+    def create(self, validated_data):
+        items_data = validated_data.pop('items')
+        now = timezone.now()
+        receipt = ContributionReceipt.objects.create(
+            **validated_data,
+            status=ContributionReceipt.Status.CONFIRMED,
+            confirmed_by=validated_data.get('created_by'),
+            confirmed_at=now,
+        )
+        obligation_ids = [item['obligation_id'] for item in items_data]
+        ContributionReceiptItem.objects.bulk_create([
+            ContributionReceiptItem(
+                receipt=receipt,
+                obligation_id=item['obligation_id'],
+                amount_applied=item['amount_applied'],
+            )
+            for item in items_data
+        ])
+        MemberContributionObligation.objects.filter(id__in=obligation_ids).update(
+            status=MemberContributionObligation.Status.CONFIRMED,
+        )
+        return receipt

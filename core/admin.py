@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.utils.translation import gettext_lazy as _
 
-from .models import ContributionCycle, FundAccount, Member, MemberContributionObligation, MemberShareAccount, SystemConfig, User
+from .models import ContributionCycle, ContributionReceipt, ContributionReceiptItem, FundAccount, Member, MemberContributionObligation, MemberShareAccount, SystemConfig, User
 
 
 @admin.register(User)
@@ -91,3 +91,20 @@ class MemberShareAccountAdmin(admin.ModelAdmin):
     list_display  = ('member', 'share_count', 'share_unit_value', 'total_value')
     search_fields = ('member__first_name', 'member__last_name', 'member__member_number')
     readonly_fields = ('created_at', 'updated_at')
+
+
+class ContributionReceiptItemInline(admin.TabularInline):
+    model       = ContributionReceiptItem
+    extra       = 0
+    fields      = ('obligation', 'amount_applied')
+    readonly_fields = ('created_at',)
+
+
+@admin.register(ContributionReceipt)
+class ContributionReceiptAdmin(admin.ModelAdmin):
+    list_display   = ('__str__', 'received_date', 'payment_method', 'amount_received', 'status', 'created_by')
+    list_filter    = ('status', 'payment_method')
+    search_fields  = ('id',)
+    ordering       = ('-received_date', '-created_at')
+    readonly_fields = ('created_at', 'updated_at')
+    inlines        = [ContributionReceiptItemInline]

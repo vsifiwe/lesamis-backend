@@ -5,11 +5,14 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import Member, MemberShareAccount
+from .models import ContributionReceipt, Member, MemberContributionObligation, MemberShareAccount
 from .permissions import IsAdminUser
 from .serializers import (
     AdjustSharesSerializer,
+    ContributionReceiptSerializer,
+    CreateContributionReceiptSerializer,
     CreateMemberSerializer,
+    MemberContributionObligationSerializer,
     MemberSerializer,
     MemberShareAccountSerializer,
 )
@@ -19,7 +22,7 @@ class MemberListCreateView(APIView):
     permission_classes = [IsAdminUser]
 
     def get(self, request):
-        members = Member.objects.all()
+        members = Member.objects.select_related('share_account').all()
         serializer = MemberSerializer(members, many=True)
         return Response(serializer.data)
 
@@ -98,3 +101,53 @@ class ShareAdjustView(APIView):
 
         account.save(update_fields=['share_count', 'updated_at'])
         return Response(MemberShareAccountSerializer(account).data)
+
+
+class ObligationListView(APIView):
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        obligations = (
+            MemberContributionObligation.objects
+            .filter(status=MemberContributionObligation.Status.EXPECTED)
+            .select_related('member', 'contribution_cycle')
+        )
+        serializer = MemberContributionObligationSerializer(obligations, many=True)
+        return Response(serializer.data)
+
+
+class ContributionReceiptListCreateView(APIView):
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        receipts = (
+            ContributionReceipt.objects
+            .select_related('confirmed_by', 'created_by')
+            .prefetch_related('items__obligation__member')
+        )
+        serializer = ContributionReceiptSerializer(receipts, many=True)
+        return Response(serializer.data)
+
+    @swagger_auto_schema(
+        request_body=CreateContributionReceiptSerializer,
+        responses={201: ContributionReceiptSerializer},
+        operation_summary='Create a contribution receipt',
+        operation_description=(
+            'Records a payment received from one or more members. '
+            'Each item in `items` links the receipt to a specific obligation '
+            'and records how much is applied to it.'
+        ),
+    )
+    def post(self, request):
+        serializer = CreateContributionReceiptSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        receipt = serializer.save(created_by=request.user)
+        return Response(
+            ContributionReceiptSerializer(
+                ContributionReceipt.objects
+                .select_related('confirmed_by', 'created_by')
+                .prefetch_related('items__obligation__member')
+                .get(pk=receipt.pk)
+            ).data,
+            status=status.HTTP_201_CREATED,
+        )
