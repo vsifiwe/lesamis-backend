@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.utils.translation import gettext_lazy as _
 
-from .models import ContributionCycle, ContributionReceipt, ContributionReceiptItem, FundAccount, Member, MemberContributionObligation, MemberShareAccount, SystemConfig, User
+from .models import ContributionCycle, ContributionReceipt, ContributionReceiptItem, FundAccount, Member, MemberContributionObligation, MemberShareAccount, Penalty, SystemConfig, User
 
 
 @admin.register(User)
@@ -108,3 +108,11 @@ class ContributionReceiptAdmin(admin.ModelAdmin):
     ordering       = ('-received_date', '-created_at')
     readonly_fields = ('created_at', 'updated_at')
     inlines        = [ContributionReceiptItemInline]
+
+
+@admin.register(Penalty)
+class PenaltyAdmin(admin.ModelAdmin):
+    list_display    = ('__str__', 'penalty_type', 'amount', 'auto_generated', 'waived', 'created_at')
+    list_filter     = ('penalty_type', 'auto_generated', 'waived')
+    search_fields   = ('contribution_obligation__member__member_number',)
+    readonly_fields = ('created_at', 'updated_at')
