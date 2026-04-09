@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.utils.translation import gettext_lazy as _
 
-from .models import ContributionCycle, ContributionReceipt, ContributionReceiptItem, FundAccount, Loan, LoanProduct, LoanRepayment, Member, MemberContributionObligation, MemberShareAccount, OtherCharge, Penalty, SystemConfig, User
+from .models import ContributionCycle, ContributionReceipt, ContributionReceiptItem, FundAccount, Investment, InvestmentProfitEntry, Loan, LoanProduct, LoanRepayment, Member, MemberContributionObligation, MemberShareAccount, OtherCharge, Penalty, SystemConfig, User
 
 
 @admin.register(User)
@@ -87,6 +87,24 @@ class LoanAdmin(admin.ModelAdmin):
     list_filter     = ('status', 'loan_product')
     search_fields   = ('member__first_name', 'member__last_name', 'member__member_number')
     ordering        = ('-created_at',)
+    readonly_fields = ('created_at', 'updated_at')
+
+
+@admin.register(InvestmentProfitEntry)
+class InvestmentProfitEntryAdmin(admin.ModelAdmin):
+    list_display    = ('id', 'investment', 'amount', 'profit_date', 'recorded_by')
+    list_filter     = ('investment',)
+    search_fields   = ('description', 'investment__name')
+    ordering        = ('-profit_date',)
+    readonly_fields = ('created_at', 'updated_at')
+
+
+@admin.register(Investment)
+class InvestmentAdmin(admin.ModelAdmin):
+    list_display    = ('name', 'investment_type', 'amount_invested', 'status', 'investment_date')
+    list_filter     = ('investment_type', 'status')
+    search_fields   = ('name', 'description')
+    ordering        = ('-investment_date',)
     readonly_fields = ('created_at', 'updated_at')
 
 

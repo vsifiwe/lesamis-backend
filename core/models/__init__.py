@@ -2,6 +2,8 @@ from .contribution_cycle import ContributionCycle
 from .contribution_receipt import ContributionReceipt
 from .contribution_receipt_item import ContributionReceiptItem
 from .fund_account import FundAccount
+from .investment import Investment
+from .investment_profit_entry import InvestmentProfitEntry
 from .loan import Loan
 from .loan_product import LoanProduct
 from .loan_repayment import LoanRepayment
@@ -18,6 +20,8 @@ __all__ = [
     'ContributionReceipt',
     'ContributionReceiptItem',
     'FundAccount',
+    'Investment',
+    'InvestmentProfitEntry',
     'Loan',
     'LoanProduct',
     'LoanRepayment',
