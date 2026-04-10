@@ -90,9 +90,21 @@ class MemberShareAccountSerializer(serializers.ModelSerializer):
 
 
 class AdjustSharesSerializer(serializers.Serializer):
-    action    = serializers.ChoiceField(choices=['INCREASE', 'DECREASE'])
-    member_id = serializers.UUIDField()
-    amount    = serializers.IntegerField(min_value=1)
+    action         = serializers.ChoiceField(choices=['INCREASE', 'DECREASE'])
+    member_id      = serializers.UUIDField()
+    amount         = serializers.IntegerField(min_value=1)
+    payment_method = serializers.ChoiceField(
+        choices=['cash', 'bank', 'mobile_money'],
+        required=False,
+    )
+    received_date  = serializers.DateField(required=False)
+
+    def validate(self, data):
+        if data.get('action') == 'INCREASE' and not data.get('payment_method'):
+            raise serializers.ValidationError(
+                {'payment_method': 'This field is required when action is INCREASE.'}
+            )
+        return data
 
 
 # ---------------------------------------------------------------------------

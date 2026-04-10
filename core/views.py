@@ -1,3 +1,4 @@
+from django.db import transaction
 from django.db.models import DecimalField, Q, Sum
 from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
@@ -100,11 +101,36 @@ class ShareAdjustView(APIView):
                     {'detail': f'Cannot decrease by {amount}: current share count is only {account.share_count}.'},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-            account.share_count -= amount
+            with transaction.atomic():
+                account.share_count -= amount
+                account.save(update_fields=['share_count', 'updated_at'])
         else:
-            account.share_count += amount
+            payment_method = serializer.validated_data['payment_method']
+            received_date  = serializer.validated_data.get('received_date') or timezone.now().date()
+            amount_received = amount * account.share_unit_value
 
-        account.save(update_fields=['share_count', 'updated_at'])
+            with transaction.atomic():
+                account.share_count += amount
+                account.save(update_fields=['share_count', 'updated_at'])
+
+                receipt = ContributionReceipt.objects.create(
+                    amount_received=amount_received,
+                    received_date=received_date,
+                    payment_method=payment_method,
+                    status=ContributionReceipt.Status.CONFIRMED,
+                    confirmed_by=request.user,
+                    confirmed_at=timezone.now(),
+                    notes=(
+                        f'Share purchase: {amount} share(s) for '
+                        f'{account.member.first_name} {account.member.last_name} '
+                        f'({account.member.member_number})'
+                    ),
+                    created_by=request.user,
+                )
+
+                from .ledger_service import record_share_purchase
+                record_share_purchase(account, receipt, request.user)
+
         return Response(MemberShareAccountSerializer(account).data)
 
 

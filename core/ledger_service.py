@@ -180,6 +180,22 @@ def record_investment_profit(profit_entry, user):
     )
 
 
+def record_share_purchase(account, receipt, user):
+    """Credit CAPITAL when a member purchases additional shares."""
+    LedgerEntry.objects.create(
+        fund_account=_get_fund('CAPITAL'),
+        member=account.member,
+        entry_date=receipt.received_date,
+        entry_type=LedgerEntry.EntryType.SHARE_PURCHASE,
+        amount=receipt.amount_received,
+        direction=LedgerEntry.Direction.CREDIT,
+        reference_id=receipt.id,
+        reference_type='contribution_receipt',
+        notes=f'Share purchase: {account.share_count} total shares after adjustment.',
+        recorded_by=user,
+    )
+
+
 def record_social_expense(social_record, user):
     """Debit the social record's fund account (SOCIAL or SOCIAL_PLUS)."""
     code = social_record.fund_account.code

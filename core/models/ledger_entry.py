@@ -17,6 +17,7 @@ class LedgerEntry(models.Model):
         INVESTMENT_PROFIT        = 'investment_profit',        'Investment Profit'
         SOCIAL_EXPENSE           = 'social_expense',           'Social Expense'
         SOCIAL_PLUS_EXPENSE      = 'social_plus_expense',      'Social+ Expense'
+        SHARE_PURCHASE           = 'share_purchase',           'Share Purchase'
 
     class Direction(models.TextChoices):
         DEBIT  = 'debit',  'Debit'
