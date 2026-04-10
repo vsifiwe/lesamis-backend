@@ -8,16 +8,18 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import ContributionReceipt, FundAccount, Investment, Loan, LoanProduct, LedgerEntry, Member, MemberContributionObligation, MemberShareAccount, Penalty
+from .models import ContributionReceipt, FundAccount, Investment, InvestmentProfitEntry, Loan, LoanProduct, LedgerEntry, Member, MemberContributionObligation, MemberShareAccount, Penalty
 from .permissions import IsAdminUser
 from .serializers import (
     AdjustSharesSerializer,
     ContributionReceiptSerializer,
     CreateContributionReceiptSerializer,
     CreateInvestmentSerializer,
+    CreateInvestmentProfitEntrySerializer,
     CreateLoanSerializer,
     CreateMemberSerializer,
     InvestmentSerializer,
+    InvestmentProfitEntrySerializer,
     LoanProductSerializer,
     LoanSerializer,
     MemberContributionObligationSerializer,
@@ -212,6 +214,33 @@ class InvestmentListCreateView(APIView):
         return Response(
             InvestmentSerializer(
                 Investment.objects.select_related('created_by').get(pk=investment.pk)
+            ).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class InvestmentProfitEntryCreateView(APIView):
+    permission_classes = [IsAdminUser]
+
+    @swagger_auto_schema(
+        request_body=CreateInvestmentProfitEntrySerializer,
+        responses={201: InvestmentProfitEntrySerializer},
+        operation_summary='Create an investment profit entry',
+        operation_description=(
+            'Records profit earned from an existing investment and immediately records '
+            'the matching CAPITAL credit ledger entry.'
+        ),
+    )
+    def post(self, request, pk):
+        investment = get_object_or_404(Investment, pk=pk)
+        serializer = CreateInvestmentProfitEntrySerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        profit_entry = serializer.save(investment=investment, recorded_by=request.user)
+        from .ledger_service import record_investment_profit
+        record_investment_profit(profit_entry, request.user)
+        return Response(
+            InvestmentProfitEntrySerializer(
+                InvestmentProfitEntry.objects.select_related('recorded_by', 'investment').get(pk=profit_entry.pk)
             ).data,
             status=status.HTTP_201_CREATED,
         )

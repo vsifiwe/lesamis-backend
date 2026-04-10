@@ -4,7 +4,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.utils import timezone
 from rest_framework import serializers
 
-from .models import ContributionReceipt, ContributionReceiptItem, Investment, Loan, LoanProduct, Member, MemberContributionObligation, MemberShareAccount, Penalty, User
+from .models import ContributionReceipt, ContributionReceiptItem, Investment, InvestmentProfitEntry, Loan, LoanProduct, Member, MemberContributionObligation, MemberShareAccount, Penalty, User
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -299,6 +299,28 @@ class CreateInvestmentSerializer(serializers.ModelSerializer):
         ]
         extra_kwargs = {
             'status': {'required': False},
+            'description': {'required': False, 'allow_blank': True},
+        }
+
+
+class InvestmentProfitEntrySerializer(serializers.ModelSerializer):
+    recorded_by_email = serializers.EmailField(source='recorded_by.email', read_only=True)
+
+    class Meta:
+        model  = InvestmentProfitEntry
+        fields = [
+            'id', 'investment', 'profit_date', 'amount', 'description',
+            'recorded_by', 'recorded_by_email',
+            'created_at', 'updated_at',
+        ]
+        read_only_fields = ['id', 'investment', 'recorded_by', 'created_at', 'updated_at']
+
+
+class CreateInvestmentProfitEntrySerializer(serializers.ModelSerializer):
+    class Meta:
+        model  = InvestmentProfitEntry
+        fields = ['profit_date', 'amount', 'description']
+        extra_kwargs = {
             'description': {'required': False, 'allow_blank': True},
         }
 

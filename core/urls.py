@@ -6,6 +6,7 @@ from .views import (
     ContributionReceiptListCreateView,
     FundAccountBalanceView,
     InvestmentListCreateView,
+    InvestmentProfitEntryCreateView,
     LoanListCreateView,
     LoanProductArchiveView,
     LoanProductListCreateView,
@@ -41,6 +42,7 @@ urlpatterns = [
 
     # Investments
     path('investments/', InvestmentListCreateView.as_view(), name='investment_list_create'),
+    path('investments/<uuid:pk>/profit-entries/', InvestmentProfitEntryCreateView.as_view(), name='investment_profit_entry_create'),
 
     # Loan Products
     path('loan-products/', LoanProductListCreateView.as_view(), name='loan_product_list_create'),
