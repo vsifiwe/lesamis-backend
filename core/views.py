@@ -397,9 +397,102 @@ class DashboardSummaryView(APIView):
             ),
         )
 
+        ledger_totals = LedgerEntry.objects.aggregate(
+            total_credit=Coalesce(
+                Sum('amount', filter=Q(direction=LedgerEntry.Direction.CREDIT)),
+                Decimal('0.00'),
+                output_field=DecimalField(max_digits=14, decimal_places=2),
+            ),
+            total_debit=Coalesce(
+                Sum('amount', filter=Q(direction=LedgerEntry.Direction.DEBIT)),
+                Decimal('0.00'),
+                output_field=DecimalField(max_digits=14, decimal_places=2),
+            ),
+        )
+
+        fund_balances = FundAccount.objects.annotate(
+            total_credits=Coalesce(
+                Sum('ledger_entries__amount', filter=Q(ledger_entries__direction=LedgerEntry.Direction.CREDIT)),
+                Decimal('0.00'),
+                output_field=DecimalField(max_digits=14, decimal_places=2),
+            ),
+            total_debits=Coalesce(
+                Sum('ledger_entries__amount', filter=Q(ledger_entries__direction=LedgerEntry.Direction.DEBIT)),
+                Decimal('0.00'),
+                output_field=DecimalField(max_digits=14, decimal_places=2),
+            ),
+        )
+
+        balance_by_code = {
+            account.code: account.total_credits - account.total_debits
+            for account in fund_balances
+        }
+
+        socials = (
+            balance_by_code.get(FundAccount.Code.SOCIAL, Decimal('0.00')) +
+            balance_by_code.get(FundAccount.Code.SOCIAL_PLUS, Decimal('0.00'))
+        )
+
+        current_available = ledger_totals['total_credit'] - ledger_totals['total_debit']
+        available_for_investment = current_available - socials
+
+        loan_projection_totals = Loan.objects.annotate(
+            total_repaid=Coalesce(
+                Sum('repayments__amount_paid'),
+                Decimal('0.00'),
+                output_field=DecimalField(max_digits=14, decimal_places=2),
+            )
+        ).aggregate(
+            outstanding_loan_repayments=Coalesce(
+                Sum(F('total_repayment_amount') - F('total_repaid')),
+                Decimal('0.00'),
+                output_field=DecimalField(max_digits=14, decimal_places=2),
+            ),
+        )
+
+        unpaid_penalties_total = Penalty.objects.filter(
+            receipt__isnull=True,
+            waived=False,
+        ).aggregate(
+            total=Coalesce(
+                Sum('amount'),
+                Decimal('0.00'),
+                output_field=DecimalField(max_digits=14, decimal_places=2),
+            )
+        )['total']
+
+        investment_projection_total = Decimal('0.00')
+        investments = Investment.objects.annotate(
+            total_profit=Coalesce(
+                Sum('profit_entries__amount'),
+                Decimal('0.00'),
+                output_field=DecimalField(max_digits=14, decimal_places=2),
+            )
+        ).exclude(expected_interest_rate_percent__isnull=True)
+
+        for investment in investments:
+            expected_maturity_value = investment.amount_invested + (
+                investment.amount_invested * investment.expected_interest_rate_percent / Decimal('100')
+            )
+            investment_projection_total += expected_maturity_value - investment.total_profit
+
+        expected_total = (
+            current_available +
+            loan_projection_totals['outstanding_loan_repayments'] +
+            unpaid_penalties_total +
+            investment_projection_total
+        )
+
         data = {
             'total_loans_disbursed': loan_totals['total_loans_disbursed'],
             'expected_interest': loan_totals['expected_interest'],
             'total_loan_interest_paid': loan_totals['total_loan_interest_paid'],
+            'fund_summary': {
+                'total_credit': ledger_totals['total_credit'],
+                'total_debit': ledger_totals['total_debit'],
+                'current_available': current_available,
+                'expected_total': expected_total.quantize(Decimal('0.01')),
+                'available_for_investment': available_for_investment.quantize(Decimal('0.01')),
+            },
         }
         return Response(data)

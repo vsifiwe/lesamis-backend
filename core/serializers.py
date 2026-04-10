@@ -284,7 +284,8 @@ class InvestmentSerializer(serializers.ModelSerializer):
         model  = Investment
         fields = [
             'id', 'name', 'investment_type', 'investment_date',
-            'amount_invested', 'status', 'description',
+            'amount_invested', 'expected_interest_rate_percent', 'vesting_period_months',
+            'status', 'description',
             'total_profit',
             'created_by', 'created_by_email',
             'created_at', 'updated_at',
@@ -297,9 +298,12 @@ class CreateInvestmentSerializer(serializers.ModelSerializer):
         model  = Investment
         fields = [
             'name', 'investment_type', 'investment_date',
-            'amount_invested', 'status', 'description',
+            'amount_invested', 'expected_interest_rate_percent', 'vesting_period_months',
+            'status', 'description',
         ]
         extra_kwargs = {
+            'expected_interest_rate_percent': {'required': False, 'allow_null': True},
+            'vesting_period_months': {'required': False, 'allow_null': True},
             'status': {'required': False},
             'description': {'required': False, 'allow_blank': True},
         }
