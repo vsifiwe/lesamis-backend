@@ -8,7 +8,7 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import ContributionReceipt, FundAccount, Loan, LoanProduct, LedgerEntry, Member, MemberContributionObligation, MemberShareAccount
+from .models import ContributionReceipt, FundAccount, Loan, LoanProduct, LedgerEntry, Member, MemberContributionObligation, MemberShareAccount, Penalty
 from .permissions import IsAdminUser
 from .serializers import (
     AdjustSharesSerializer,
@@ -21,6 +21,7 @@ from .serializers import (
     MemberContributionObligationSerializer,
     MemberSerializer,
     MemberShareAccountSerializer,
+    PenaltySerializer,
 )
 
 
@@ -250,6 +251,22 @@ class LoanListCreateView(APIView):
             ).data,
             status=status.HTTP_201_CREATED,
         )
+
+
+class PenaltyListView(APIView):
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        penalties = (
+            Penalty.objects
+            .select_related(
+                'contribution_obligation__member',
+                'contribution_obligation__contribution_cycle',
+                'waived_by',
+            )
+            .all()
+        )
+        return Response(PenaltySerializer(penalties, many=True).data)
 
 
 class FundAccountBalanceView(APIView):

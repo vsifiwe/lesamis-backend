@@ -249,6 +249,30 @@ class CreateContributionReceiptSerializer(serializers.Serializer):
 
 
 # ---------------------------------------------------------------------------
+# Penalties
+# ---------------------------------------------------------------------------
+
+class PenaltySerializer(serializers.ModelSerializer):
+    member_number = serializers.CharField(source='contribution_obligation.member.member_number', read_only=True)
+    member_name   = serializers.SerializerMethodField()
+    cycle         = serializers.StringRelatedField(source='contribution_obligation.contribution_cycle')
+    waived_by_email = serializers.EmailField(source='waived_by.email', read_only=True, default=None)
+
+    class Meta:
+        model  = Penalty
+        fields = [
+            'id', 'contribution_obligation', 'receipt',
+            'member_number', 'member_name', 'cycle',
+            'penalty_type', 'amount', 'reason', 'auto_generated',
+            'waived', 'waived_by', 'waived_by_email', 'waived_at',
+            'created_at', 'updated_at',
+        ]
+
+    def get_member_name(self, obj):
+        return obj.contribution_obligation.member.get_full_name()
+
+
+# ---------------------------------------------------------------------------
 # Loan Products
 # ---------------------------------------------------------------------------
 

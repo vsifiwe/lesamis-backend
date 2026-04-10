@@ -12,6 +12,7 @@ from .views import (
     MemberDetailView,
     MemberListCreateView,
     ObligationListView,
+    PenaltyListView,
     ShareAdjustView,
 )
 
@@ -30,6 +31,9 @@ urlpatterns = [
 
     # Obligations
     path('obligations/', ObligationListView.as_view(), name='obligation_list'),
+
+    # Penalties
+    path('penalties/', PenaltyListView.as_view(), name='penalty_list'),
 
     # Receipts
     path('receipts/', ContributionReceiptListCreateView.as_view(), name='receipt_list_create'),
