@@ -462,6 +462,7 @@ class DashboardSummaryView(APIView):
         )['total']
 
         investment_projection_total = Decimal('0.00')
+        realized_profits = Decimal('0.00')
         investments = Investment.objects.annotate(
             total_profit=Coalesce(
                 Sum('profit_entries__amount'),
@@ -471,6 +472,7 @@ class DashboardSummaryView(APIView):
         ).exclude(expected_interest_rate_percent__isnull=True)
 
         for investment in investments:
+            realized_profits += investment.total_profit
             expected_maturity_value = investment.amount_invested + (
                 investment.amount_invested * investment.expected_interest_rate_percent / Decimal('100')
             )
@@ -491,6 +493,7 @@ class DashboardSummaryView(APIView):
                 'total_credit': ledger_totals['total_credit'],
                 'total_debit': ledger_totals['total_debit'],
                 'current_available': current_available,
+                'realized_profits': realized_profits.quantize(Decimal('0.01')),
                 'expected_total': expected_total.quantize(Decimal('0.01')),
                 'available_for_investment': available_for_investment.quantize(Decimal('0.01')),
             },
