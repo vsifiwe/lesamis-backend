@@ -8,14 +8,16 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import ContributionReceipt, FundAccount, Loan, LoanProduct, LedgerEntry, Member, MemberContributionObligation, MemberShareAccount, Penalty
+from .models import ContributionReceipt, FundAccount, Investment, Loan, LoanProduct, LedgerEntry, Member, MemberContributionObligation, MemberShareAccount, Penalty
 from .permissions import IsAdminUser
 from .serializers import (
     AdjustSharesSerializer,
     ContributionReceiptSerializer,
     CreateContributionReceiptSerializer,
+    CreateInvestmentSerializer,
     CreateLoanSerializer,
     CreateMemberSerializer,
+    InvestmentSerializer,
     LoanProductSerializer,
     LoanSerializer,
     MemberContributionObligationSerializer,
@@ -180,6 +182,36 @@ class ContributionReceiptListCreateView(APIView):
                 .select_related('confirmed_by', 'created_by')
                 .prefetch_related('items__obligation__member')
                 .get(pk=receipt.pk)
+            ).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class InvestmentListCreateView(APIView):
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        investments = Investment.objects.select_related('created_by').all()
+        return Response(InvestmentSerializer(investments, many=True).data)
+
+    @swagger_auto_schema(
+        request_body=CreateInvestmentSerializer,
+        responses={201: InvestmentSerializer},
+        operation_summary='Create an investment',
+        operation_description=(
+            'Creates a new investment record and immediately records the matching '
+            'CAPITAL debit ledger entry for the purchase.'
+        ),
+    )
+    def post(self, request):
+        serializer = CreateInvestmentSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        investment = serializer.save(created_by=request.user)
+        from .ledger_service import record_investment_purchase
+        record_investment_purchase(investment, request.user)
+        return Response(
+            InvestmentSerializer(
+                Investment.objects.select_related('created_by').get(pk=investment.pk)
             ).data,
             status=status.HTTP_201_CREATED,
         )

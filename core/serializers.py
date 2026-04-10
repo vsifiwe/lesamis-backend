@@ -4,7 +4,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.utils import timezone
 from rest_framework import serializers
 
-from .models import ContributionReceipt, ContributionReceiptItem, Loan, LoanProduct, Member, MemberContributionObligation, MemberShareAccount, Penalty, User
+from .models import ContributionReceipt, ContributionReceiptItem, Investment, Loan, LoanProduct, Member, MemberContributionObligation, MemberShareAccount, Penalty, User
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -273,6 +273,37 @@ class PenaltySerializer(serializers.ModelSerializer):
 
 
 # ---------------------------------------------------------------------------
+# Investments
+# ---------------------------------------------------------------------------
+
+class InvestmentSerializer(serializers.ModelSerializer):
+    created_by_email = serializers.EmailField(source='created_by.email', read_only=True)
+
+    class Meta:
+        model  = Investment
+        fields = [
+            'id', 'name', 'investment_type', 'investment_date',
+            'amount_invested', 'status', 'description',
+            'created_by', 'created_by_email',
+            'created_at', 'updated_at',
+        ]
+        read_only_fields = ['id', 'created_by', 'created_at', 'updated_at']
+
+
+class CreateInvestmentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model  = Investment
+        fields = [
+            'name', 'investment_type', 'investment_date',
+            'amount_invested', 'status', 'description',
+        ]
+        extra_kwargs = {
+            'status': {'required': False},
+            'description': {'required': False, 'allow_blank': True},
+        }
+
+
+# ---------------------------------------------------------------------------
 # Loan Products
 # ---------------------------------------------------------------------------
 
@@ -333,10 +364,23 @@ class CreateLoanSerializer(serializers.Serializer):
         except Member.share_account.RelatedObjectDoesNotExist:
             raise serializers.ValidationError({'member_id': 'Member has no share account.'})
 
+        from django.db.models import Sum
         max_principal = share_account.share_count * 10_000
-        if data['principal_amount'] > max_principal:
+        existing_principal = (
+            Loan.objects
+            .filter(member=member, status=Loan.Status.ACTIVE)
+            .aggregate(total=Sum('principal_amount'))['total']
+        ) or Decimal('0')
+        available = max_principal - existing_principal
+        if data['principal_amount'] > available:
             raise serializers.ValidationError(
-                {'principal_amount': f'Principal exceeds maximum allowed ({max_principal}) based on member share count ({share_account.share_count}).'}
+                {
+                    'principal_amount': (
+                        f'Principal exceeds available borrowing capacity. '
+                        f'Share cap: {max_principal}, existing active loans: {existing_principal}, '
+                        f'available: {available}.'
+                    )
+                }
             )
 
         # Resolve loan product

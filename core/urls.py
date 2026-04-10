@@ -5,6 +5,7 @@ from .tokens import MemberTokenObtainPairView
 from .views import (
     ContributionReceiptListCreateView,
     FundAccountBalanceView,
+    InvestmentListCreateView,
     LoanListCreateView,
     LoanProductArchiveView,
     LoanProductListCreateView,
@@ -37,6 +38,9 @@ urlpatterns = [
 
     # Receipts
     path('receipts/', ContributionReceiptListCreateView.as_view(), name='receipt_list_create'),
+
+    # Investments
+    path('investments/', InvestmentListCreateView.as_view(), name='investment_list_create'),
 
     # Loan Products
     path('loan-products/', LoanProductListCreateView.as_view(), name='loan_product_list_create'),
