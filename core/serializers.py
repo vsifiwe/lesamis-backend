@@ -278,12 +278,14 @@ class PenaltySerializer(serializers.ModelSerializer):
 
 class InvestmentSerializer(serializers.ModelSerializer):
     created_by_email = serializers.EmailField(source='created_by.email', read_only=True)
+    total_profit     = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
 
     class Meta:
         model  = Investment
         fields = [
             'id', 'name', 'investment_type', 'investment_date',
             'amount_invested', 'status', 'description',
+            'total_profit',
             'created_by', 'created_by_email',
             'created_at', 'updated_at',
         ]

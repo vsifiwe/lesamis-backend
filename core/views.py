@@ -1,5 +1,7 @@
 from django.db import transaction
-from django.db.models import DecimalField, Q, Sum
+from decimal import Decimal
+
+from django.db.models import DecimalField, F, Q, Sum
 from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -8,7 +10,7 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import ContributionReceipt, FundAccount, Investment, InvestmentProfitEntry, Loan, LoanProduct, LedgerEntry, Member, MemberContributionObligation, MemberShareAccount, Penalty
+from .models import ContributionReceipt, FundAccount, Investment, InvestmentProfitEntry, Loan, LoanProduct, LoanRepayment, LedgerEntry, Member, MemberContributionObligation, MemberShareAccount, Penalty
 from .permissions import IsAdminUser
 from .serializers import (
     AdjustSharesSerializer,
@@ -193,7 +195,13 @@ class InvestmentListCreateView(APIView):
     permission_classes = [IsAdminUser]
 
     def get(self, request):
-        investments = Investment.objects.select_related('created_by').all()
+        investments = Investment.objects.select_related('created_by').annotate(
+            total_profit=Coalesce(
+                Sum('profit_entries__amount'),
+                Decimal('0.00'),
+                output_field=DecimalField(max_digits=14, decimal_places=2),
+            )
+        )
         return Response(InvestmentSerializer(investments, many=True).data)
 
     @swagger_auto_schema(
@@ -213,7 +221,13 @@ class InvestmentListCreateView(APIView):
         record_investment_purchase(investment, request.user)
         return Response(
             InvestmentSerializer(
-                Investment.objects.select_related('created_by').get(pk=investment.pk)
+                Investment.objects.select_related('created_by').annotate(
+                    total_profit=Coalesce(
+                        Sum('profit_entries__amount'),
+                        Decimal('0.00'),
+                        output_field=DecimalField(max_digits=14, decimal_places=2),
+                    )
+                ).get(pk=investment.pk)
             ).data,
             status=status.HTTP_201_CREATED,
         )
@@ -358,4 +372,34 @@ class FundAccountBalanceView(APIView):
             }
             for account in accounts
         ]
+        return Response(data)
+
+
+class DashboardSummaryView(APIView):
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        loan_totals = Loan.objects.aggregate(
+            total_loans_disbursed=Coalesce(
+                Sum('principal_amount'),
+                Decimal('0.00'),
+                output_field=DecimalField(max_digits=14, decimal_places=2),
+            ),
+            expected_interest=Coalesce(
+                Sum(F('total_repayment_amount') - F('principal_amount')),
+                Decimal('0.00'),
+                output_field=DecimalField(max_digits=14, decimal_places=2),
+            ),
+            total_loan_interest_paid=Coalesce(
+                Sum('repayments__amount_paid'),
+                Decimal('0.00'),
+                output_field=DecimalField(max_digits=14, decimal_places=2),
+            ),
+        )
+
+        data = {
+            'total_loans_disbursed': loan_totals['total_loans_disbursed'],
+            'expected_interest': loan_totals['expected_interest'],
+            'total_loan_interest_paid': loan_totals['total_loan_interest_paid'],
+        }
         return Response(data)
