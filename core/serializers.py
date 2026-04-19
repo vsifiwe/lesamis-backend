@@ -473,6 +473,19 @@ class MemberContributionPendingSerializer(serializers.ModelSerializer):
         ]
 
 
+class MemberPenaltySerializer(serializers.ModelSerializer):
+    cycle_year  = serializers.IntegerField(source='contribution_obligation.contribution_cycle.year',  read_only=True)
+    cycle_month = serializers.IntegerField(source='contribution_obligation.contribution_cycle.month', read_only=True)
+
+    class Meta:
+        model  = Penalty
+        fields = [
+            'id', 'cycle_year', 'cycle_month',
+            'penalty_type', 'amount', 'reason',
+            'waived', 'waived_at', 'created_at',
+        ]
+
+
 class MemberLoanSerializer(serializers.ModelSerializer):
     loan_product_name  = serializers.CharField(source='loan_product.name', read_only=True)
     total_paid         = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)

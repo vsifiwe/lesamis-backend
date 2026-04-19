@@ -16,6 +16,7 @@ from .views import (
     MemberDetailView,
     MemberListCreateView,
     MemberLoansView,
+    MemberPenaltiesView,
     MemberSummaryView,
     ObligationListView,
     PenaltyListView,
@@ -65,4 +66,5 @@ urlpatterns = [
     path('me/summary/', MemberSummaryView.as_view(), name='member_me_summary'),
     path('me/contributions/', MemberContributionsView.as_view(), name='member_me_contributions'),
     path('me/loans/', MemberLoansView.as_view(), name='member_me_loans'),
+    path('me/penalties/', MemberPenaltiesView.as_view(), name='member_me_penalties'),
 ]
