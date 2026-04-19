@@ -14,6 +14,7 @@ from .views import (
     MemberDeactivateView,
     MemberDetailView,
     MemberListCreateView,
+    MemberSummaryView,
     ObligationListView,
     PenaltyListView,
     ShareAdjustView,
@@ -57,4 +58,7 @@ urlpatterns = [
 
     # Fund balances
     path('fund-accounts/balances/', FundAccountBalanceView.as_view(), name='fund_account_balances'),
+
+    # Member self-summary
+    path('me/summary/', MemberSummaryView.as_view(), name='member_me_summary'),
 ]

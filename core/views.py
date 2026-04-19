@@ -1,7 +1,7 @@
 from django.db import transaction
 from decimal import Decimal
 
-from django.db.models import DecimalField, F, Q, Sum
+from django.db.models import Count, DecimalField, F, Q, Sum
 from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -10,7 +10,7 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import ContributionReceipt, FundAccount, Investment, InvestmentProfitEntry, Loan, LoanProduct, LoanRepayment, LedgerEntry, Member, MemberContributionObligation, MemberShareAccount, Penalty
+from .models import ContributionReceipt, ContributionReceiptItem, FundAccount, Investment, InvestmentProfitEntry, Loan, LoanProduct, LoanRepayment, LedgerEntry, Member, MemberContributionObligation, MemberShareAccount, Penalty
 from .permissions import IsAdminUser, IsAnyAuthenticatedUser
 from .serializers import (
     AdjustSharesSerializer,
@@ -504,3 +504,56 @@ class DashboardSummaryView(APIView):
             },
         }
         return Response(data)
+
+
+class MemberSummaryView(APIView):
+    permission_classes = [IsAnyAuthenticatedUser]
+
+    def get(self, request):
+        member = getattr(request.user, 'member', None)
+        if member is None:
+            return Response(
+                {'detail': 'No member account linked to this user.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        total_contributions = (
+            ContributionReceiptItem.objects
+            .filter(
+                obligation__member=member,
+                receipt__status=ContributionReceipt.Status.CONFIRMED,
+            )
+            .aggregate(total=Coalesce(
+                Sum('amount_applied'),
+                Decimal('0.00'),
+                output_field=DecimalField(max_digits=14, decimal_places=2),
+            ))['total']
+        )
+
+        active_loans_agg = Loan.objects.filter(
+            member=member, status=Loan.Status.ACTIVE
+        ).aggregate(
+            count=Count('id'),
+            total_amount=Coalesce(
+                Sum('principal_amount'),
+                Decimal('0.00'),
+                output_field=DecimalField(max_digits=14, decimal_places=2),
+            ),
+        )
+
+        total_penalties = (
+            Penalty.objects
+            .filter(contribution_obligation__member=member, waived=False)
+            .aggregate(total=Coalesce(
+                Sum('amount'),
+                Decimal('0.00'),
+                output_field=DecimalField(max_digits=14, decimal_places=2),
+            ))['total']
+        )
+
+        return Response({
+            'total_contributions': total_contributions,
+            'active_loans': active_loans_agg['count'],
+            'active_loan_amount': active_loans_agg['total_amount'],
+            'total_penalties': total_penalties,
+        })
