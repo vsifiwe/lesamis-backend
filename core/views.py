@@ -11,7 +11,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .models import ContributionReceipt, FundAccount, Investment, InvestmentProfitEntry, Loan, LoanProduct, LoanRepayment, LedgerEntry, Member, MemberContributionObligation, MemberShareAccount, Penalty
-from .permissions import IsAdminUser
+from .permissions import IsAdminUser, IsAnyAuthenticatedUser
 from .serializers import (
     AdjustSharesSerializer,
     ContributionReceiptSerializer,
@@ -194,6 +194,11 @@ class ContributionReceiptListCreateView(APIView):
 class InvestmentListCreateView(APIView):
     permission_classes = [IsAdminUser]
 
+    def get_permissions(self):
+        if self.request.method == 'GET':
+            return [IsAnyAuthenticatedUser()]
+        return [IsAdminUser()]
+
     def get(self, request):
         investments = Investment.objects.select_related('created_by').annotate(
             total_profit=Coalesce(
@@ -345,7 +350,7 @@ class PenaltyListView(APIView):
 
 
 class FundAccountBalanceView(APIView):
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsAnyAuthenticatedUser]
 
     def get(self, request):
         accounts = FundAccount.objects.annotate(
@@ -376,7 +381,7 @@ class FundAccountBalanceView(APIView):
 
 
 class DashboardSummaryView(APIView):
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsAnyAuthenticatedUser]
 
     def get(self, request):
         loan_totals = Loan.objects.aggregate(

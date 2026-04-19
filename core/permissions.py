@@ -23,3 +23,10 @@ class IsOperatorOrAdmin(BasePermission):
             and request.user.is_authenticated
             and request.user.role in (User.Role.ADMIN, User.Role.OPERATOR)
         )
+
+
+class IsAnyAuthenticatedUser(BasePermission):
+    message = 'Authentication required.'
+
+    def has_permission(self, request, view):
+        return request.user and request.user.is_authenticated
