@@ -472,3 +472,22 @@ class MemberContributionPendingSerializer(serializers.ModelSerializer):
             'social_plus_amount_expected', 'total_amount_expected', 'status',
         ]
 
+
+class MemberLoanSerializer(serializers.ModelSerializer):
+    loan_product_name  = serializers.CharField(source='loan_product.name', read_only=True)
+    total_paid         = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
+    outstanding_amount = serializers.SerializerMethodField()
+
+    def get_outstanding_amount(self, obj):
+        return (obj.total_repayment_amount - obj.total_paid).quantize(Decimal('0.01'))
+
+    class Meta:
+        model  = Loan
+        fields = [
+            'id', 'loan_product_name',
+            'principal_amount', 'interest_rate_percent_snapshot', 'duration_months_snapshot',
+            'total_repayment_amount', 'monthly_installment_amount',
+            'outstanding_amount', 'total_paid',
+            'issued_date', 'first_due_date', 'status',
+        ]
+
