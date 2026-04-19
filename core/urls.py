@@ -11,6 +11,7 @@ from .views import (
     LoanListCreateView,
     LoanProductArchiveView,
     LoanProductListCreateView,
+    MemberContributionsView,
     MemberDeactivateView,
     MemberDetailView,
     MemberListCreateView,
@@ -61,4 +62,5 @@ urlpatterns = [
 
     # Member self-summary
     path('me/summary/', MemberSummaryView.as_view(), name='member_me_summary'),
+    path('me/contributions/', MemberContributionsView.as_view(), name='member_me_contributions'),
 ]

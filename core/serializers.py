@@ -446,3 +446,29 @@ class CreateLoanSerializer(serializers.Serializer):
             notes=validated_data['notes'],
             created_by=validated_data['created_by'],
         )
+
+
+class MemberContributionReceivedSerializer(serializers.ModelSerializer):
+    cycle_year     = serializers.IntegerField(source='obligation.contribution_cycle.year',    read_only=True)
+    cycle_month    = serializers.IntegerField(source='obligation.contribution_cycle.month',   read_only=True)
+    received_date  = serializers.DateField(source='receipt.received_date',                   read_only=True)
+    payment_method = serializers.CharField(source='receipt.payment_method',                  read_only=True)
+
+    class Meta:
+        model  = ContributionReceiptItem
+        fields = ['id', 'cycle_year', 'cycle_month', 'amount_applied', 'received_date', 'payment_method']
+
+
+class MemberContributionPendingSerializer(serializers.ModelSerializer):
+    cycle_year  = serializers.IntegerField(source='contribution_cycle.year',     read_only=True)
+    cycle_month = serializers.IntegerField(source='contribution_cycle.month',    read_only=True)
+    due_date    = serializers.DateField(source='contribution_cycle.due_date',    read_only=True)
+
+    class Meta:
+        model  = MemberContributionObligation
+        fields = [
+            'id', 'cycle_year', 'cycle_month', 'due_date',
+            'capital_amount_expected', 'social_amount_expected',
+            'social_plus_amount_expected', 'total_amount_expected', 'status',
+        ]
+

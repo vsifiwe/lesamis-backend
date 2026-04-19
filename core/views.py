@@ -25,6 +25,8 @@ from .serializers import (
     LoanProductSerializer,
     LoanSerializer,
     MemberContributionObligationSerializer,
+    MemberContributionPendingSerializer,
+    MemberContributionReceivedSerializer,
     MemberSerializer,
     MemberShareAccountSerializer,
     PenaltySerializer,
@@ -556,4 +558,38 @@ class MemberSummaryView(APIView):
             'active_loans': active_loans_agg['count'],
             'active_loan_amount': active_loans_agg['total_amount'],
             'total_penalties': total_penalties,
+        })
+
+
+class MemberContributionsView(APIView):
+    permission_classes = [IsAnyAuthenticatedUser]
+
+    def get(self, request):
+        member = getattr(request.user, 'member', None)
+        if member is None:
+            return Response(
+                {'detail': 'No member account linked to this user.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        received = (
+            ContributionReceiptItem.objects
+            .filter(
+                obligation__member=member,
+                receipt__status=ContributionReceipt.Status.CONFIRMED,
+            )
+            .select_related('obligation__contribution_cycle', 'receipt')
+            .order_by('-receipt__received_date')
+        )
+
+        pending = (
+            MemberContributionObligation.objects
+            .filter(member=member)
+            .exclude(status=MemberContributionObligation.Status.CONFIRMED)
+            .select_related('contribution_cycle')
+        )
+
+        return Response({
+            'received': MemberContributionReceivedSerializer(received, many=True).data,
+            'pending':  MemberContributionPendingSerializer(pending, many=True).data,
         })
