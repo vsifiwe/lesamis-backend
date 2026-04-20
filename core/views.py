@@ -10,7 +10,7 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import ContributionReceipt, ContributionReceiptItem, FundAccount, Investment, InvestmentProfitEntry, Loan, LoanProduct, LoanRepayment, LedgerEntry, Member, MemberContributionObligation, MemberShareAccount, Penalty, User
+from .models import ContributionReceipt, ContributionReceiptItem, FundAccount, Investment, InvestmentProfitEntry, Loan, LoanProduct, LoanRepayment, LedgerEntry, Member, MemberContributionObligation, MemberShareAccount, OtherCharge, Penalty, User
 from .permissions import IsAdminUser, IsAnyAuthenticatedUser
 from .serializers import (
     AdjustSharesSerializer,
@@ -20,6 +20,7 @@ from .serializers import (
     CreateInvestmentProfitEntrySerializer,
     CreateLoanSerializer,
     CreateMemberSerializer,
+    CreateOtherChargeSerializer,
     InvestmentSerializer,
     InvestmentProfitEntrySerializer,
     LoanProductSerializer,
@@ -31,6 +32,7 @@ from .serializers import (
     MemberPenaltySerializer,
     MemberSerializer,
     MemberShareAccountSerializer,
+    OtherChargeSerializer,
     PenaltySerializer,
 )
 
@@ -654,3 +656,20 @@ class MeView(APIView):
             "full_name": user.full_name,
             "role": role,
         })
+
+
+class OtherChargeListCreateView(APIView):
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        charges = OtherCharge.objects.select_related('fund_account', 'recorded_by').all()
+        return Response(OtherChargeSerializer(charges, many=True).data)
+
+    def post(self, request):
+        from .ledger_service import record_other_charge
+        serializer = CreateOtherChargeSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        with transaction.atomic():
+            charge = serializer.save(recorded_by=request.user)
+            record_other_charge(charge, request.user)
+        return Response(OtherChargeSerializer(charge).data, status=status.HTTP_201_CREATED)

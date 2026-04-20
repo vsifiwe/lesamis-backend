@@ -4,7 +4,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.utils import timezone
 from rest_framework import serializers
 
-from .models import ContributionReceipt, ContributionReceiptItem, Investment, InvestmentProfitEntry, Loan, LoanProduct, Member, MemberContributionObligation, MemberShareAccount, Penalty, User
+from .models import ContributionReceipt, ContributionReceiptItem, Investment, InvestmentProfitEntry, Loan, LoanProduct, Member, MemberContributionObligation, MemberShareAccount, OtherCharge, Penalty, User
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -104,6 +104,39 @@ class AdjustSharesSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 {'payment_method': 'This field is required when action is INCREASE.'}
             )
+        return data
+
+
+# ---------------------------------------------------------------------------
+# Other Charges
+# ---------------------------------------------------------------------------
+
+class OtherChargeSerializer(serializers.ModelSerializer):
+    recorded_by_email = serializers.EmailField(source='recorded_by.email', read_only=True)
+    fund_account_name = serializers.CharField(source='fund_account.name', read_only=True)
+
+    class Meta:
+        model  = OtherCharge
+        fields = [
+            'id', 'charge_type', 'amount', 'direction',
+            'fund_account', 'fund_account_name',
+            'charge_date', 'description',
+            'recorded_by', 'recorded_by_email', 'created_at',
+        ]
+
+
+class CreateOtherChargeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model  = OtherCharge
+        fields = ['charge_type', 'amount', 'direction', 'fund_account', 'charge_date', 'description']
+
+    def validate(self, data):
+        if data.get('charge_type') == 'adjustment':
+            desc = (data.get('description') or '').strip()
+            if len(desc) < 50:
+                raise serializers.ValidationError(
+                    {'description': 'A description of at least 50 characters is required for adjustments.'}
+                )
         return data
 
 
