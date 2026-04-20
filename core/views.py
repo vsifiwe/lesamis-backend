@@ -10,7 +10,7 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import ContributionReceipt, ContributionReceiptItem, FundAccount, Investment, InvestmentProfitEntry, Loan, LoanProduct, LoanRepayment, LedgerEntry, Member, MemberContributionObligation, MemberShareAccount, Penalty
+from .models import ContributionReceipt, ContributionReceiptItem, FundAccount, Investment, InvestmentProfitEntry, Loan, LoanProduct, LoanRepayment, LedgerEntry, Member, MemberContributionObligation, MemberShareAccount, Penalty, User
 from .permissions import IsAdminUser, IsAnyAuthenticatedUser
 from .serializers import (
     AdjustSharesSerializer,
@@ -642,3 +642,15 @@ class MemberPenaltiesView(APIView):
         )
 
         return Response(MemberPenaltySerializer(penalties, many=True).data)
+
+
+class MeView(APIView):
+    permission_classes = [IsAnyAuthenticatedUser]
+
+    def get(self, request):
+        user = request.user
+        role = "Admin" if user.role == User.Role.ADMIN else "Member"
+        return Response({
+            "full_name": user.full_name,
+            "role": role,
+        })
