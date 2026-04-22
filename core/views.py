@@ -13,7 +13,10 @@ from rest_framework.views import APIView
 from .models import ContributionReceipt, ContributionReceiptItem, FundAccount, Investment, InvestmentProfitEntry, Loan, LoanProduct, LoanRepayment, LedgerEntry, Member, MemberContributionObligation, MemberShareAccount, OtherCharge, Penalty, User
 from .permissions import IsAdminUser, IsAnyAuthenticatedUser
 from .serializers import (
+    AdvanceContributionReceiptSerializer,
+    AdvanceReceiptPreviewResponseSerializer,
     AdjustSharesSerializer,
+    build_advance_receipt_preview,
     ContributionReceiptSerializer,
     CreateContributionReceiptSerializer,
     CreateInvestmentSerializer,
@@ -178,6 +181,47 @@ class ContributionReceiptListCreateView(APIView):
     )
     def post(self, request):
         serializer = CreateContributionReceiptSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        receipt = serializer.save(created_by=request.user)
+        return Response(
+            ContributionReceiptSerializer(
+                ContributionReceipt.objects
+                .select_related('confirmed_by', 'created_by')
+                .prefetch_related('items__obligation__member')
+                .get(pk=receipt.pk)
+            ).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class AdvanceContributionReceiptPreviewView(APIView):
+    permission_classes = [IsAdminUser]
+
+    @swagger_auto_schema(
+        request_body=AdvanceContributionReceiptSerializer,
+        responses={200: AdvanceReceiptPreviewResponseSerializer},
+        operation_summary='Preview an advance contribution receipt',
+    )
+    def post(self, request):
+        serializer = AdvanceContributionReceiptSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        return Response(build_advance_receipt_preview(serializer.validated_data))
+
+
+class AdvanceContributionReceiptCreateView(APIView):
+    permission_classes = [IsAdminUser]
+
+    @swagger_auto_schema(
+        request_body=AdvanceContributionReceiptSerializer,
+        responses={201: ContributionReceiptSerializer},
+        operation_summary='Create an advance contribution receipt',
+        operation_description=(
+            'Creates future monthly contribution cycles and obligations as needed, '
+            'then records one confirmed receipt that fully settles the next N months.'
+        ),
+    )
+    def post(self, request):
+        serializer = AdvanceContributionReceiptSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         receipt = serializer.save(created_by=request.user)
         return Response(

@@ -7,7 +7,7 @@ from django.db.models.functions import Coalesce
 from django.utils import timezone
 from rest_framework import serializers
 
-from .models import ContributionCycle, ContributionReceipt, ContributionReceiptItem, Investment, InvestmentProfitEntry, Loan, LoanProduct, Member, MemberContributionObligation, MemberShareAccount, OtherCharge, Penalty, User
+from .models import ContributionCycle, ContributionReceipt, ContributionReceiptItem, Investment, InvestmentProfitEntry, Loan, LoanProduct, Member, MemberContributionObligation, MemberShareAccount, OtherCharge, Penalty, SystemConfig, User
 
 
 def _get_current_share_price() -> int:
@@ -338,6 +338,99 @@ class CreateContributionReceiptSerializer(serializers.Serializer):
             return receipt
 
 
+class AdvanceReceiptMonthSerializer(serializers.Serializer):
+    cycle_id = serializers.UUIDField(read_only=True)
+    year = serializers.IntegerField(read_only=True)
+    month = serializers.IntegerField(read_only=True)
+    label = serializers.CharField(read_only=True)
+    obligation_id = serializers.UUIDField(read_only=True)
+    capital_amount_expected = serializers.IntegerField(read_only=True)
+    social_amount_expected = serializers.IntegerField(read_only=True)
+    social_plus_amount_expected = serializers.IntegerField(read_only=True)
+    total_amount_expected = serializers.IntegerField(read_only=True)
+    amount_paid = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
+    amount_outstanding = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
+
+
+class AdvanceReceiptPreviewResponseSerializer(serializers.Serializer):
+    member_id = serializers.UUIDField(read_only=True)
+    member_name = serializers.CharField(read_only=True)
+    months = AdvanceReceiptMonthSerializer(many=True, read_only=True)
+    amount_received = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
+
+
+class AdvanceContributionReceiptSerializer(serializers.Serializer):
+    member_id = serializers.UUIDField()
+    months_ahead = serializers.IntegerField(min_value=1)
+    received_date = serializers.DateField()
+    payment_method = serializers.ChoiceField(choices=ContributionReceipt.PaymentMethod.choices)
+    notes = serializers.CharField(required=False, allow_blank=True, default='')
+
+    def validate(self, data):
+        try:
+            member = Member.objects.select_related('share_account').get(id=data['member_id'])
+        except Member.DoesNotExist as exc:
+            raise serializers.ValidationError({'member_id': 'Member does not exist.'}) from exc
+
+        if member.status != Member.Status.ACTIVE:
+            raise serializers.ValidationError({'member_id': 'Advance payment is only allowed for active members.'})
+
+        obligations = _resolve_advance_payment_obligations(member, data['months_ahead'])
+        if not obligations:
+            raise serializers.ValidationError('No payable obligations were resolved.')
+
+        data['_member'] = member
+        data['_resolved'] = obligations
+        data['amount_received'] = sum(item['amount_outstanding'] for item in obligations)
+        return data
+
+    def create(self, validated_data):
+        resolved = validated_data.pop('_resolved')
+        validated_data.pop('_member')
+        payload = {
+            'amount_received': validated_data['amount_received'],
+            'received_date': validated_data['received_date'],
+            'payment_method': validated_data['payment_method'],
+            'notes': validated_data.get('notes', ''),
+            'items': [
+                {
+                    'obligation_id': item['obligation'].id,
+                    'amount_applied': item['amount_outstanding'],
+                }
+                for item in resolved
+            ],
+        }
+        serializer = CreateContributionReceiptSerializer(data=payload)
+        serializer.is_valid(raise_exception=True)
+        return serializer.save(created_by=validated_data['created_by'])
+
+
+def build_advance_receipt_preview(validated_data):
+    member = validated_data['_member']
+    resolved = validated_data['_resolved']
+    return {
+        'member_id': member.id,
+        'member_name': member.get_full_name(),
+        'months': [
+            {
+                'cycle_id': item['cycle'].id,
+                'year': item['cycle'].year,
+                'month': item['cycle'].month,
+                'label': f'{item["cycle"].year}-{item["cycle"].month:02d}',
+                'obligation_id': item['obligation'].id,
+                'capital_amount_expected': item['obligation'].capital_amount_expected,
+                'social_amount_expected': item['obligation'].social_amount_expected,
+                'social_plus_amount_expected': item['obligation'].social_plus_amount_expected,
+                'total_amount_expected': item['obligation'].total_amount_expected,
+                'amount_paid': item['amount_paid'],
+                'amount_outstanding': item['amount_outstanding'],
+            }
+            for item in resolved
+        ],
+        'amount_received': validated_data['amount_received'],
+    }
+
+
 # ---------------------------------------------------------------------------
 # Penalties
 # ---------------------------------------------------------------------------
@@ -619,6 +712,42 @@ def _get_obligation_amount_paid(obligation) -> Decimal:
 def _get_obligation_amount_outstanding(obligation) -> Decimal:
     total = Decimal(str(obligation.total_amount_expected))
     return total - _get_obligation_amount_paid(obligation)
+
+
+def _resolve_advance_payment_obligations(member, months_ahead):
+    from .tasks import _month_sequence, ensure_contribution_obligation, ensure_cycle
+
+    config = SystemConfig.objects.first()
+    if config is None:
+        raise serializers.ValidationError('System configuration is missing.')
+
+    today = timezone.now().date()
+    resolved = []
+    seen_cycles = set()
+
+    for year, month in _month_sequence(today.year, today.month, months_ahead):
+        cycle, _ = ensure_cycle(year, month, config)
+        obligation, _ = ensure_contribution_obligation(member, cycle, config)
+        if obligation.obligation_type != MemberContributionObligation.ObligationType.CONTRIBUTION:
+            raise serializers.ValidationError(f'Obligation for {year}-{month:02d} is not a contribution obligation.')
+        key = (cycle.year, cycle.month)
+        if key in seen_cycles:
+            raise serializers.ValidationError(f'Duplicate cycle detected for {year}-{month:02d}.')
+        seen_cycles.add(key)
+
+        amount_paid = _get_obligation_amount_paid(obligation)
+        amount_outstanding = _get_obligation_amount_outstanding(obligation)
+        if amount_outstanding <= Decimal('0.00'):
+            raise serializers.ValidationError(f'Obligation for {year}-{month:02d} is already fully paid.')
+
+        resolved.append({
+            'cycle': cycle,
+            'obligation': obligation,
+            'amount_paid': amount_paid,
+            'amount_outstanding': amount_outstanding,
+        })
+
+    return resolved
 
 
 class MemberPenaltySerializer(serializers.ModelSerializer):

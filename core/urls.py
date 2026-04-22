@@ -3,6 +3,8 @@ from rest_framework_simplejwt.views import TokenRefreshView
 
 from .tokens import MemberTokenObtainPairView
 from .views import (
+    AdvanceContributionReceiptCreateView,
+    AdvanceContributionReceiptPreviewView,
     ContributionReceiptListCreateView,
     DashboardSummaryView,
     FundAccountBalanceView,
@@ -48,6 +50,8 @@ urlpatterns = [
 
     # Receipts
     path('receipts/', ContributionReceiptListCreateView.as_view(), name='receipt_list_create'),
+    path('contributions/advance-receipt/preview/', AdvanceContributionReceiptPreviewView.as_view(), name='advance_receipt_preview'),
+    path('contributions/advance-receipt/', AdvanceContributionReceiptCreateView.as_view(), name='advance_receipt_create'),
 
     # Investments
     path('investments/', InvestmentListCreateView.as_view(), name='investment_list_create'),
