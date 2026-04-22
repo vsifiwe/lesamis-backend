@@ -119,45 +119,22 @@ class ShareAdjustView(APIView):
                 account.share_count -= amount
                 account.save(update_fields=['share_count', 'updated_at'])
         else:
-            payment_method = serializer.validated_data['payment_method']
-            received_date  = serializer.validated_data.get('received_date') or timezone.now().date()
             from .serializers import _get_current_share_price
-            price           = _get_current_share_price()
-            amount_received = amount * price
+            price = _get_current_share_price()
 
             with transaction.atomic():
-                account.share_count += amount
-                account.save(update_fields=['share_count', 'updated_at'])
-
-                receipt = ContributionReceipt.objects.create(
-                    amount_received=amount_received,
-                    received_date=received_date,
-                    payment_method=payment_method,
-                    status=ContributionReceipt.Status.CONFIRMED,
-                    confirmed_by=request.user,
-                    confirmed_at=timezone.now(),
-                    notes=(
-                        f'Share purchase: {amount} share(s) for '
-                        f'{account.member.first_name} {account.member.last_name} '
-                        f'({account.member.member_number})'
-                    ),
-                    created_by=request.user,
-                )
-
-                from .ledger_service import record_share_purchase
-                record_share_purchase(account, receipt, request.user)
-
                 MemberContributionObligation.objects.create(
                     member=account.member,
                     contribution_cycle=None,
                     obligation_type=MemberContributionObligation.ObligationType.SHARE_PURCHASE,
                     share_count_snapshot=amount,
+                    shares_to_grant=amount,
                     share_unit_value_snapshot=price,
                     capital_amount_expected=amount * price,
                     social_amount_expected=0,
                     social_plus_amount_expected=0,
                     total_amount_expected=amount * price,
-                    status=MemberContributionObligation.Status.CONFIRMED,
+                    status=MemberContributionObligation.Status.EXPECTED,
                 )
 
         return Response(MemberShareAccountSerializer(account).data)
@@ -169,8 +146,9 @@ class ObligationListView(APIView):
     def get(self, request):
         obligations = (
             MemberContributionObligation.objects
-            .filter(status=MemberContributionObligation.Status.EXPECTED)
+            .exclude(status=MemberContributionObligation.Status.CONFIRMED)
             .select_related('member', 'contribution_cycle')
+            .prefetch_related('receipt_items__receipt')
         )
         serializer = MemberContributionObligationSerializer(obligations, many=True)
         return Response(serializer.data)
@@ -595,6 +573,7 @@ class MemberSummaryView(APIView):
                 member=member,
                 obligation_type=MemberContributionObligation.ObligationType.SHARE_PURCHASE,
                 status=MemberContributionObligation.Status.CONFIRMED,
+                receipt_items__isnull=True,
             )
             .aggregate(total=Coalesce(
                 Sum('total_amount_expected'),
@@ -649,6 +628,7 @@ class MemberContributionsView(APIView):
             ContributionReceiptItem.objects
             .filter(
                 obligation__member=member,
+                obligation__obligation_type=MemberContributionObligation.ObligationType.CONTRIBUTION,
                 receipt__status=ContributionReceipt.Status.CONFIRMED,
             )
             .select_related('obligation__contribution_cycle', 'receipt')
@@ -660,12 +640,14 @@ class MemberContributionsView(APIView):
             .filter(member=member, obligation_type=MemberContributionObligation.ObligationType.CONTRIBUTION)
             .exclude(status=MemberContributionObligation.Status.CONFIRMED)
             .select_related('contribution_cycle')
+            .prefetch_related('receipt_items__receipt')
         )
 
         purchases = (
             MemberContributionObligation.objects
             .filter(member=member, obligation_type=MemberContributionObligation.ObligationType.SHARE_PURCHASE)
             .order_by('-created_at')
+            .prefetch_related('receipt_items__receipt')
         )
 
         return Response({

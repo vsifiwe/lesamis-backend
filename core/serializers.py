@@ -1,6 +1,9 @@
 from decimal import Decimal
 
 from django.contrib.auth.password_validation import validate_password
+from django.db import transaction
+from django.db.models import DecimalField, Sum
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 from rest_framework import serializers
 
@@ -153,6 +156,8 @@ class MemberContributionObligationSerializer(serializers.ModelSerializer):
     member_number = serializers.CharField(source='member.member_number', read_only=True)
     member_name   = serializers.SerializerMethodField()
     cycle         = serializers.StringRelatedField(source='contribution_cycle')
+    amount_paid = serializers.SerializerMethodField()
+    amount_outstanding = serializers.SerializerMethodField()
 
     class Meta:
         model  = MemberContributionObligation
@@ -160,14 +165,22 @@ class MemberContributionObligationSerializer(serializers.ModelSerializer):
             'id', 'member', 'member_number', 'member_name',
             'contribution_cycle', 'cycle',
             'obligation_type',
-            'share_count_snapshot', 'share_unit_value_snapshot',
+            'share_count_snapshot', 'shares_to_grant', 'share_unit_value_snapshot',
             'capital_amount_expected', 'social_amount_expected',
             'social_plus_amount_expected', 'total_amount_expected',
+            'amount_paid', 'amount_outstanding',
             'status', 'created_at', 'updated_at',
         ]
 
     def get_member_name(self, obj):
         return obj.member.get_full_name()
+
+    def get_amount_paid(self, obj):
+        return _get_obligation_amount_paid(obj)
+
+    def get_amount_outstanding(self, obj):
+        total = Decimal(str(obj.total_amount_expected))
+        return total - _get_obligation_amount_paid(obj)
 
 
 # ---------------------------------------------------------------------------
@@ -221,13 +234,6 @@ class CreateContributionReceiptSerializer(serializers.Serializer):
         obligation_ids = [item['obligation_id'] for item in items]
         if len(obligation_ids) != len(set(str(i) for i in obligation_ids)):
             raise serializers.ValidationError('Duplicate obligation ids are not allowed.')
-        already_paid = ContributionReceiptItem.objects.filter(
-            obligation_id__in=obligation_ids
-        ).values_list('obligation_id', flat=True)
-        if already_paid:
-            raise serializers.ValidationError(
-                f'The following obligations already have a receipt: {[str(i) for i in already_paid]}'
-            )
         obligations = {
             str(o.id): o
             for o in MemberContributionObligation.objects.filter(id__in=obligation_ids)
@@ -238,7 +244,22 @@ class CreateContributionReceiptSerializer(serializers.Serializer):
             if obligation is None:
                 errors.append(f'Obligation {item["obligation_id"]} does not exist.')
                 continue
-            if item['amount_applied'] != obligation.total_amount_expected:
+            outstanding = _get_obligation_amount_outstanding(obligation)
+            if outstanding <= Decimal('0.00'):
+                errors.append(f'Obligation {item["obligation_id"]} is already fully paid.')
+                continue
+            if (
+                obligation.obligation_type == MemberContributionObligation.ObligationType.SHARE_PURCHASE
+                and item['amount_applied'] > outstanding
+            ):
+                errors.append(
+                    f'Obligation {item["obligation_id"]}: amount_applied ({item["amount_applied"]}) '
+                    f'cannot exceed outstanding_amount ({outstanding}).'
+                )
+            elif (
+                obligation.obligation_type == MemberContributionObligation.ObligationType.CONTRIBUTION
+                and item['amount_applied'] != outstanding
+            ):
                 errors.append(
                     f'Obligation {item["obligation_id"]}: amount_applied ({item["amount_applied"]}) '
                     f'must equal total_amount_expected ({obligation.total_amount_expected}).'
@@ -259,32 +280,62 @@ class CreateContributionReceiptSerializer(serializers.Serializer):
     def create(self, validated_data):
         items_data = validated_data.pop('items')
         now = timezone.now()
-        receipt = ContributionReceipt.objects.create(
-            **validated_data,
-            status=ContributionReceipt.Status.CONFIRMED,
-            confirmed_by=validated_data.get('created_by'),
-            confirmed_at=now,
-        )
-        obligation_ids = [item['obligation_id'] for item in items_data]
-        ContributionReceiptItem.objects.bulk_create([
-            ContributionReceiptItem(
-                receipt=receipt,
-                obligation_id=item['obligation_id'],
-                amount_applied=item['amount_applied'],
+        with transaction.atomic():
+            receipt = ContributionReceipt.objects.create(
+                **validated_data,
+                status=ContributionReceipt.Status.CONFIRMED,
+                confirmed_by=validated_data.get('created_by'),
+                confirmed_at=now,
             )
-            for item in items_data
-        ])
-        MemberContributionObligation.objects.filter(id__in=obligation_ids).update(
-            status=MemberContributionObligation.Status.CONFIRMED,
-        )
-        Penalty.objects.filter(
-            contribution_obligation_id__in=obligation_ids,
-            waived=False,
-            receipt__isnull=True,
-        ).update(receipt=receipt)
-        from .ledger_service import record_contribution_receipt
-        record_contribution_receipt(receipt, validated_data['created_by'])
-        return receipt
+            obligation_ids = [item['obligation_id'] for item in items_data]
+            ContributionReceiptItem.objects.bulk_create([
+                ContributionReceiptItem(
+                    receipt=receipt,
+                    obligation_id=item['obligation_id'],
+                    amount_applied=item['amount_applied'],
+                )
+                for item in items_data
+            ])
+
+            obligations = (
+                MemberContributionObligation.objects
+                .select_related('member__share_account')
+                .filter(id__in=obligation_ids)
+            )
+
+            contribution_ids = []
+            from .ledger_service import record_contribution_receipt, record_share_purchase
+
+            for obligation in obligations:
+                outstanding = _get_obligation_amount_outstanding(obligation)
+                if outstanding == Decimal('0.00'):
+                    was_confirmed = obligation.status == MemberContributionObligation.Status.CONFIRMED
+                    obligation.status = MemberContributionObligation.Status.CONFIRMED
+                    obligation.save(update_fields=['status', 'updated_at'])
+
+                    if (
+                        obligation.obligation_type == MemberContributionObligation.ObligationType.SHARE_PURCHASE
+                        and not was_confirmed
+                    ):
+                        account = obligation.member.share_account
+                        account.share_count += obligation.shares_to_grant or obligation.share_count_snapshot
+                        account.save(update_fields=['share_count', 'updated_at'])
+                        record_share_purchase(account, receipt, validated_data['created_by'])
+                    elif obligation.obligation_type == MemberContributionObligation.ObligationType.CONTRIBUTION:
+                        contribution_ids.append(obligation.id)
+                else:
+                    obligation.status = MemberContributionObligation.Status.PARTIALLY_PAID
+                    obligation.save(update_fields=['status', 'updated_at'])
+
+            if contribution_ids:
+                Penalty.objects.filter(
+                    contribution_obligation_id__in=contribution_ids,
+                    waived=False,
+                    receipt__isnull=True,
+                ).update(receipt=receipt)
+
+            record_contribution_receipt(receipt, validated_data['created_by'])
+            return receipt
 
 
 # ---------------------------------------------------------------------------
@@ -515,20 +566,59 @@ class MemberContributionPendingSerializer(serializers.ModelSerializer):
     cycle_year  = serializers.IntegerField(source='contribution_cycle.year',     read_only=True)
     cycle_month = serializers.IntegerField(source='contribution_cycle.month',    read_only=True)
     due_date    = serializers.DateField(source='contribution_cycle.due_date',    read_only=True)
+    amount_paid = serializers.SerializerMethodField()
+    amount_outstanding = serializers.SerializerMethodField()
 
     class Meta:
         model  = MemberContributionObligation
         fields = [
             'id', 'cycle_year', 'cycle_month', 'due_date',
             'capital_amount_expected', 'social_amount_expected',
-            'social_plus_amount_expected', 'total_amount_expected', 'status',
+            'social_plus_amount_expected', 'total_amount_expected',
+            'amount_paid', 'amount_outstanding', 'status',
         ]
+
+    def get_amount_paid(self, obj):
+        return _get_obligation_amount_paid(obj)
+
+    def get_amount_outstanding(self, obj):
+        return _get_obligation_amount_outstanding(obj)
 
 
 class MemberSharePurchaseSerializer(serializers.ModelSerializer):
+    amount_paid = serializers.SerializerMethodField()
+    amount_outstanding = serializers.SerializerMethodField()
+
     class Meta:
         model  = MemberContributionObligation
-        fields = ['id', 'share_count_snapshot', 'share_unit_value_snapshot', 'total_amount_expected', 'created_at']
+        fields = [
+            'id', 'share_count_snapshot', 'shares_to_grant', 'share_unit_value_snapshot',
+            'total_amount_expected', 'amount_paid', 'amount_outstanding', 'status', 'created_at',
+        ]
+
+    def get_amount_paid(self, obj):
+        return _get_obligation_amount_paid(obj)
+
+    def get_amount_outstanding(self, obj):
+        return _get_obligation_amount_outstanding(obj)
+
+
+def _get_obligation_amount_paid(obligation) -> Decimal:
+    total = (
+        obligation.receipt_items
+        .filter(receipt__status=ContributionReceipt.Status.CONFIRMED)
+        .aggregate(total=Coalesce(
+            Sum('amount_applied'),
+            Decimal('0.00'),
+            output_field=DecimalField(max_digits=10, decimal_places=2),
+        ))['total']
+    )
+    return total or Decimal('0.00')
+
+
+def _get_obligation_amount_outstanding(obligation) -> Decimal:
+    total = Decimal(str(obligation.total_amount_expected))
+    return total - _get_obligation_amount_paid(obligation)
 
 
 class MemberPenaltySerializer(serializers.ModelSerializer):
@@ -561,4 +651,3 @@ class MemberLoanSerializer(serializers.ModelSerializer):
             'outstanding_amount', 'total_paid',
             'issued_date', 'first_due_date', 'status',
         ]
-

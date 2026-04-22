@@ -24,6 +24,7 @@ class MemberContributionObligation(models.Model):
     contribution_cycle          = models.ForeignKey(ContributionCycle, on_delete=models.PROTECT, related_name='obligations', null=True, blank=True)
     obligation_type             = models.CharField(max_length=20, choices=ObligationType.choices, default=ObligationType.CONTRIBUTION)
     share_count_snapshot        = models.PositiveIntegerField()
+    shares_to_grant             = models.PositiveIntegerField(null=True, blank=True)
     share_unit_value_snapshot   = models.PositiveIntegerField()
     capital_amount_expected     = models.PositiveIntegerField()
     social_amount_expected      = models.PositiveIntegerField(default=2000)

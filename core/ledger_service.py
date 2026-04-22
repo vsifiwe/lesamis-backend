@@ -103,6 +103,8 @@ def record_contribution_receipt(receipt, user):
 
     for item in items:
         obligation = item.obligation
+        if obligation.obligation_type == obligation.ObligationType.SHARE_PURCHASE:
+            continue
         member     = obligation.member
         ref_id     = receipt.id
         ref_type   = 'contribution_receipt'
