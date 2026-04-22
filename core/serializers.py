@@ -159,6 +159,7 @@ class MemberContributionObligationSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'member', 'member_number', 'member_name',
             'contribution_cycle', 'cycle',
+            'obligation_type',
             'share_count_snapshot', 'share_unit_value_snapshot',
             'capital_amount_expected', 'social_amount_expected',
             'social_plus_amount_expected', 'total_amount_expected',

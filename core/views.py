@@ -121,7 +121,8 @@ class ShareAdjustView(APIView):
             payment_method = serializer.validated_data['payment_method']
             received_date  = serializer.validated_data.get('received_date') or timezone.now().date()
             from .serializers import _get_current_share_price
-            amount_received = amount * _get_current_share_price()
+            price           = _get_current_share_price()
+            amount_received = amount * price
 
             with transaction.atomic():
                 account.share_count += amount
@@ -144,6 +145,19 @@ class ShareAdjustView(APIView):
 
                 from .ledger_service import record_share_purchase
                 record_share_purchase(account, receipt, request.user)
+
+                MemberContributionObligation.objects.create(
+                    member=account.member,
+                    contribution_cycle=None,
+                    obligation_type=MemberContributionObligation.ObligationType.SHARE_PURCHASE,
+                    share_count_snapshot=amount,
+                    share_unit_value_snapshot=price,
+                    capital_amount_expected=amount * price,
+                    social_amount_expected=0,
+                    social_plus_amount_expected=0,
+                    total_amount_expected=amount * price,
+                    status=MemberContributionObligation.Status.CONFIRMED,
+                )
 
         return Response(MemberShareAccountSerializer(account).data)
 
