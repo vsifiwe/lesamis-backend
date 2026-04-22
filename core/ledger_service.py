@@ -63,6 +63,29 @@ def _assert_capital_can_debit(amount: Decimal) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Social balance helpers
+# ---------------------------------------------------------------------------
+
+def get_social_combined_balance() -> Decimal:
+    agg = LedgerEntry.objects.filter(
+        fund_account__code__in=['SOCIAL', 'SOCIAL_PLUS']
+    ).aggregate(
+        credits=Sum('amount', filter=Q(direction=LedgerEntry.Direction.CREDIT)),
+        debits=Sum('amount', filter=Q(direction=LedgerEntry.Direction.DEBIT)),
+    )
+    return (agg['credits'] or Decimal('0')) - (agg['debits'] or Decimal('0'))
+
+
+def _assert_social_can_debit(amount: Decimal) -> None:
+    FundAccount.objects.select_for_update().filter(code__in=['SOCIAL', 'SOCIAL_PLUS'])
+    balance = get_social_combined_balance()
+    if balance < Decimal(str(amount)):
+        raise ValidationError(
+            f'Insufficient social funds: combined balance is {balance}, cannot debit {amount}.'
+        )
+
+
+# ---------------------------------------------------------------------------
 # Public recording functions
 # ---------------------------------------------------------------------------
 
@@ -163,18 +186,24 @@ def record_loan_repayment(repayment, user):
 
 def record_other_charge(charge, user):
     """Mirror the charge's own direction into the specified fund account."""
-    LedgerEntry.objects.create(
-        fund_account=charge.fund_account,
-        member=None,
-        entry_date=charge.charge_date,
-        entry_type=LedgerEntry.EntryType.OTHER_CHARGE,
-        amount=charge.amount,
-        direction=charge.direction,
-        reference_id=charge.id,
-        reference_type='other_charge',
-        notes=charge.description,
-        recorded_by=user,
-    )
+    with transaction.atomic():
+        if (
+            charge.fund_account.code in ('SOCIAL', 'SOCIAL_PLUS')
+            and charge.direction == 'debit'
+        ):
+            _assert_social_can_debit(charge.amount)
+        LedgerEntry.objects.create(
+            fund_account=charge.fund_account,
+            member=None,
+            entry_date=charge.charge_date,
+            entry_type=LedgerEntry.EntryType.OTHER_CHARGE,
+            amount=charge.amount,
+            direction=charge.direction,
+            reference_id=charge.id,
+            reference_type='other_charge',
+            notes=charge.description,
+            recorded_by=user,
+        )
 
 
 def record_investment_purchase(investment, user):
@@ -227,20 +256,22 @@ def record_share_purchase(account, receipt, user):
 
 def record_social_expense(social_record, user):
     """Debit the social record's fund account (SOCIAL or SOCIAL_PLUS)."""
-    code = social_record.fund_account.code
-    entry_type = (
-        LedgerEntry.EntryType.SOCIAL_EXPENSE
-        if code == 'SOCIAL'
-        else LedgerEntry.EntryType.SOCIAL_PLUS_EXPENSE
-    )
-    LedgerEntry.objects.create(
-        fund_account=social_record.fund_account,
-        member=None,
-        entry_date=social_record.activity_date,
-        entry_type=entry_type,
-        amount=social_record.amount,
-        direction=LedgerEntry.Direction.DEBIT,
-        reference_id=social_record.id,
-        reference_type='social_activity_record',
-        recorded_by=user,
-    )
+    with transaction.atomic():
+        _assert_social_can_debit(social_record.amount)
+        code = social_record.fund_account.code
+        entry_type = (
+            LedgerEntry.EntryType.SOCIAL_EXPENSE
+            if code == 'SOCIAL'
+            else LedgerEntry.EntryType.SOCIAL_PLUS_EXPENSE
+        )
+        LedgerEntry.objects.create(
+            fund_account=social_record.fund_account,
+            member=None,
+            entry_date=social_record.activity_date,
+            entry_type=entry_type,
+            amount=social_record.amount,
+            direction=LedgerEntry.Direction.DEBIT,
+            reference_id=social_record.id,
+            reference_type='social_activity_record',
+            recorded_by=user,
+        )

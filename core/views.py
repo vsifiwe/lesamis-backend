@@ -742,10 +742,15 @@ class OtherChargeListCreateView(APIView):
         return Response(OtherChargeSerializer(charges, many=True).data)
 
     def post(self, request):
+        from django.core.exceptions import ValidationError as DjangoValidationError
+        from rest_framework.exceptions import ValidationError as DRFValidationError
         from .ledger_service import record_other_charge
         serializer = CreateOtherChargeSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        with transaction.atomic():
-            charge = serializer.save(recorded_by=request.user)
-            record_other_charge(charge, request.user)
+        try:
+            with transaction.atomic():
+                charge = serializer.save(recorded_by=request.user)
+                record_other_charge(charge, request.user)
+        except DjangoValidationError as exc:
+            raise DRFValidationError(detail=exc.message)
         return Response(OtherChargeSerializer(charge).data, status=status.HTTP_201_CREATED)
