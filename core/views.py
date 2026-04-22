@@ -28,6 +28,7 @@ from .serializers import (
     MemberContributionObligationSerializer,
     MemberContributionPendingSerializer,
     MemberContributionReceivedSerializer,
+    MemberSharePurchaseSerializer,
     MemberLoanSerializer,
     MemberPenaltySerializer,
     MemberSerializer,
@@ -575,7 +576,7 @@ class MemberSummaryView(APIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        total_contributions = (
+        receipt_contributions = (
             ContributionReceiptItem.objects
             .filter(
                 obligation__member=member,
@@ -587,6 +588,22 @@ class MemberSummaryView(APIView):
                 output_field=DecimalField(max_digits=14, decimal_places=2),
             ))['total']
         )
+
+        share_purchase_contributions = (
+            MemberContributionObligation.objects
+            .filter(
+                member=member,
+                obligation_type=MemberContributionObligation.ObligationType.SHARE_PURCHASE,
+                status=MemberContributionObligation.Status.CONFIRMED,
+            )
+            .aggregate(total=Coalesce(
+                Sum('total_amount_expected'),
+                Decimal('0.00'),
+                output_field=DecimalField(max_digits=14, decimal_places=2),
+            ))['total']
+        )
+
+        total_contributions = receipt_contributions + share_purchase_contributions
 
         active_loans_agg = Loan.objects.filter(
             member=member, status=Loan.Status.ACTIVE
@@ -640,14 +657,21 @@ class MemberContributionsView(APIView):
 
         pending = (
             MemberContributionObligation.objects
-            .filter(member=member)
+            .filter(member=member, obligation_type=MemberContributionObligation.ObligationType.CONTRIBUTION)
             .exclude(status=MemberContributionObligation.Status.CONFIRMED)
             .select_related('contribution_cycle')
         )
 
+        purchases = (
+            MemberContributionObligation.objects
+            .filter(member=member, obligation_type=MemberContributionObligation.ObligationType.SHARE_PURCHASE)
+            .order_by('-created_at')
+        )
+
         return Response({
-            'received': MemberContributionReceivedSerializer(received, many=True).data,
-            'pending':  MemberContributionPendingSerializer(pending, many=True).data,
+            'received':  MemberContributionReceivedSerializer(received, many=True).data,
+            'pending':   MemberContributionPendingSerializer(pending, many=True).data,
+            'purchases': MemberSharePurchaseSerializer(purchases, many=True).data,
         })
 
 

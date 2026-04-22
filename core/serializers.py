@@ -525,6 +525,12 @@ class MemberContributionPendingSerializer(serializers.ModelSerializer):
         ]
 
 
+class MemberSharePurchaseSerializer(serializers.ModelSerializer):
+    class Meta:
+        model  = MemberContributionObligation
+        fields = ['id', 'share_count_snapshot', 'share_unit_value_snapshot', 'total_amount_expected', 'created_at']
+
+
 class MemberPenaltySerializer(serializers.ModelSerializer):
     cycle_year  = serializers.IntegerField(source='contribution_obligation.contribution_cycle.year',  read_only=True)
     cycle_month = serializers.IntegerField(source='contribution_obligation.contribution_cycle.month', read_only=True)
