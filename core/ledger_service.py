@@ -6,6 +6,10 @@ Call the appropriate function from the view/serializer after the source record i
 """
 from decimal import Decimal
 
+from django.core.exceptions import ValidationError
+from django.db import transaction
+from django.db.models import Q, Sum
+
 from .models import FundAccount, LedgerEntry, Penalty
 
 # ---------------------------------------------------------------------------
@@ -35,6 +39,27 @@ def _entry(fund_account, member, entry_date, entry_type, amount, direction,
         notes=notes,
         recorded_by=recorded_by,
     )
+
+
+# ---------------------------------------------------------------------------
+# Capital balance helpers
+# ---------------------------------------------------------------------------
+
+def get_capital_balance() -> Decimal:
+    agg = LedgerEntry.objects.filter(fund_account=_get_fund('CAPITAL')).aggregate(
+        credits=Sum('amount', filter=Q(direction=LedgerEntry.Direction.CREDIT)),
+        debits=Sum('amount', filter=Q(direction=LedgerEntry.Direction.DEBIT)),
+    )
+    return (agg['credits'] or Decimal('0')) - (agg['debits'] or Decimal('0'))
+
+
+def _assert_capital_can_debit(amount: Decimal) -> None:
+    FundAccount.objects.select_for_update().get(code='CAPITAL')
+    balance = get_capital_balance()
+    if balance < Decimal(str(amount)):
+        raise ValidationError(
+            f'Insufficient capital: balance is {balance}, cannot debit {amount}.'
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -106,17 +131,19 @@ def record_contribution_receipt(receipt, user):
 
 def record_loan_disbursement(loan, user):
     """Debit CAPITAL when a loan is issued."""
-    LedgerEntry.objects.create(
-        fund_account=_get_fund('CAPITAL'),
-        member=loan.member,
-        entry_date=loan.issued_date,
-        entry_type=LedgerEntry.EntryType.LOAN_DISBURSEMENT,
-        amount=loan.principal_amount,
-        direction=LedgerEntry.Direction.DEBIT,
-        reference_id=loan.id,
-        reference_type='loan',
-        recorded_by=user,
-    )
+    with transaction.atomic():
+        _assert_capital_can_debit(loan.principal_amount)
+        LedgerEntry.objects.create(
+            fund_account=_get_fund('CAPITAL'),
+            member=loan.member,
+            entry_date=loan.issued_date,
+            entry_type=LedgerEntry.EntryType.LOAN_DISBURSEMENT,
+            amount=loan.principal_amount,
+            direction=LedgerEntry.Direction.DEBIT,
+            reference_id=loan.id,
+            reference_type='loan',
+            recorded_by=user,
+        )
 
 
 def record_loan_repayment(repayment, user):
@@ -152,17 +179,19 @@ def record_other_charge(charge, user):
 
 def record_investment_purchase(investment, user):
     """Debit CAPITAL when an investment is purchased."""
-    LedgerEntry.objects.create(
-        fund_account=_get_fund('CAPITAL'),
-        member=None,
-        entry_date=investment.investment_date,
-        entry_type=LedgerEntry.EntryType.INVESTMENT_PURCHASE,
-        amount=investment.amount_invested,
-        direction=LedgerEntry.Direction.DEBIT,
-        reference_id=investment.id,
-        reference_type='investment',
-        recorded_by=user,
-    )
+    with transaction.atomic():
+        _assert_capital_can_debit(investment.amount_invested)
+        LedgerEntry.objects.create(
+            fund_account=_get_fund('CAPITAL'),
+            member=None,
+            entry_date=investment.investment_date,
+            entry_type=LedgerEntry.EntryType.INVESTMENT_PURCHASE,
+            amount=investment.amount_invested,
+            direction=LedgerEntry.Direction.DEBIT,
+            reference_id=investment.id,
+            reference_type='investment',
+            recorded_by=user,
+        )
 
 
 def record_investment_profit(profit_entry, user):

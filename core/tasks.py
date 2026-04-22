@@ -5,7 +5,7 @@ import logging
 from background_task import background
 from django.utils import timezone
 
-from .models import ContributionCycle, Member, MemberContributionObligation, Penalty, SystemConfig
+from .models import ContributionCycle, Member, MemberContributionObligation, MemberShareAccount, Penalty, SystemConfig
 
 logger = logging.getLogger(__name__)
 
@@ -132,6 +132,16 @@ def generate_monthly_cycle():
     )
 
     if created:
+        from django.db.models import Sum as _Sum
+        from .ledger_service import get_capital_balance
+        total_shares = (
+            MemberShareAccount.objects
+            .filter(member__status=Member.Status.ACTIVE)
+            .aggregate(total=_Sum('share_count'))['total']
+        ) or 0
+        capital = get_capital_balance()
+        cycle.share_unit_value = int(capital / total_shares) if total_shares > 0 else 10_000
+        cycle.save(update_fields=['share_unit_value'])
         _generate_obligations(cycle, config)
 
     generate_monthly_cycle(schedule=_first_of_next_month())

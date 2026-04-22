@@ -4,7 +4,12 @@ from django.contrib.auth.password_validation import validate_password
 from django.utils import timezone
 from rest_framework import serializers
 
-from .models import ContributionReceipt, ContributionReceiptItem, Investment, InvestmentProfitEntry, Loan, LoanProduct, Member, MemberContributionObligation, MemberShareAccount, OtherCharge, Penalty, User
+from .models import ContributionCycle, ContributionReceipt, ContributionReceiptItem, Investment, InvestmentProfitEntry, Loan, LoanProduct, Member, MemberContributionObligation, MemberShareAccount, OtherCharge, Penalty, User
+
+
+def _get_current_share_price() -> int:
+    cycle = ContributionCycle.objects.filter(share_unit_value__isnull=False).order_by('-year', '-month').first()
+    return cycle.share_unit_value if cycle else 10_000
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -426,7 +431,8 @@ class CreateLoanSerializer(serializers.Serializer):
             raise serializers.ValidationError({'member_id': 'Member has no share account.'})
 
         from django.db.models import Sum
-        max_principal = share_account.share_count * 10_000
+        share_price = _get_current_share_price()
+        max_principal = share_account.share_count * share_price
         existing_principal = (
             Loan.objects
             .filter(member=member, status=Loan.Status.ACTIVE)

@@ -120,7 +120,8 @@ class ShareAdjustView(APIView):
         else:
             payment_method = serializer.validated_data['payment_method']
             received_date  = serializer.validated_data.get('received_date') or timezone.now().date()
-            amount_received = amount * account.share_unit_value
+            from .serializers import _get_current_share_price
+            amount_received = amount * _get_current_share_price()
 
             with transaction.atomic():
                 account.share_count += amount
@@ -225,11 +226,17 @@ class InvestmentListCreateView(APIView):
         ),
     )
     def post(self, request):
+        from django.core.exceptions import ValidationError as DjangoValidationError
+        from rest_framework.exceptions import ValidationError as DRFValidationError
+        from .ledger_service import record_investment_purchase
         serializer = CreateInvestmentSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        investment = serializer.save(created_by=request.user)
-        from .ledger_service import record_investment_purchase
-        record_investment_purchase(investment, request.user)
+        try:
+            with transaction.atomic():
+                investment = serializer.save(created_by=request.user)
+                record_investment_purchase(investment, request.user)
+        except DjangoValidationError as exc:
+            raise DRFValidationError(detail=exc.message)
         return Response(
             InvestmentSerializer(
                 Investment.objects.select_related('created_by').annotate(
@@ -326,11 +333,17 @@ class LoanListCreateView(APIView):
         ),
     )
     def post(self, request):
+        from django.core.exceptions import ValidationError as DjangoValidationError
+        from rest_framework.exceptions import ValidationError as DRFValidationError
+        from .ledger_service import record_loan_disbursement
         serializer = CreateLoanSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        loan = serializer.save(created_by=request.user)
-        from .ledger_service import record_loan_disbursement
-        record_loan_disbursement(loan, request.user)
+        try:
+            with transaction.atomic():
+                loan = serializer.save(created_by=request.user)
+                record_loan_disbursement(loan, request.user)
+        except DjangoValidationError as exc:
+            raise DRFValidationError(detail=exc.message)
         return Response(
             LoanSerializer(
                 Loan.objects.select_related('member', 'loan_product', 'created_by').get(pk=loan.pk)

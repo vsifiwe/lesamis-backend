@@ -16,6 +16,7 @@ class ContributionCycle(models.Model):
     late_penalty_start_date  = models.DateField()
     extra_penalty_start_date = models.DateField()
     status                   = models.CharField(max_length=10, choices=Status.choices, default=Status.OPEN)
+    share_unit_value         = models.PositiveIntegerField(null=True, blank=True)
     created_at               = models.DateTimeField(auto_now_add=True)
     updated_at               = models.DateTimeField(auto_now=True)
 
