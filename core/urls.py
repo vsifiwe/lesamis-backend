@@ -22,6 +22,7 @@ from .views import (
     ObligationListView,
     OtherChargeListCreateView,
     PenaltyListView,
+    PenaltyWaiveView,
     ShareAdjustView,
 )
 
@@ -43,6 +44,7 @@ urlpatterns = [
 
     # Penalties
     path('penalties/', PenaltyListView.as_view(), name='penalty_list'),
+    path('penalties/<uuid:pk>/waive/', PenaltyWaiveView.as_view(), name='penalty_waive'),
 
     # Receipts
     path('receipts/', ContributionReceiptListCreateView.as_view(), name='receipt_list_create'),

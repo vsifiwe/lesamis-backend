@@ -368,6 +368,31 @@ class PenaltyListView(APIView):
         return Response(PenaltySerializer(penalties, many=True).data)
 
 
+class PenaltyWaiveView(APIView):
+    permission_classes = [IsAdminUser]
+
+    def patch(self, request, pk):
+        penalty = get_object_or_404(Penalty, pk=pk)
+
+        if penalty.waived:
+            return Response({'detail': 'Penalty is already waived.'}, status=status.HTTP_400_BAD_REQUEST)
+        if penalty.receipt is not None:
+            return Response({'detail': 'Cannot waive a penalty that has already been paid.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        with transaction.atomic():
+            penalty.waived    = True
+            penalty.waived_by = request.user
+            penalty.waived_at = timezone.now()
+            penalty.save(update_fields=['waived', 'waived_by', 'waived_at', 'updated_at'])
+
+            obligation = penalty.contribution_obligation
+            obligation.total_amount_expected -= int(penalty.amount)
+            obligation.save(update_fields=['total_amount_expected', 'updated_at'])
+
+        penalty.refresh_from_db(fields=['waived_by'])
+        return Response(PenaltySerializer(penalty).data)
+
+
 class FundAccountBalanceView(APIView):
     permission_classes = [IsAnyAuthenticatedUser]
 
