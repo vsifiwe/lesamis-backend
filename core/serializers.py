@@ -346,6 +346,18 @@ class CreateInvestmentSerializer(serializers.ModelSerializer):
             'description': {'required': False, 'allow_blank': True},
         }
 
+    def validate(self, data):
+        from .ledger_service import get_capital_balance
+        available = get_capital_balance()
+        if Decimal(str(data['amount_invested'])) > available:
+            raise serializers.ValidationError({
+                'amount_invested': (
+                    f'Amount exceeds available capital. '
+                    f'Available: {available}, requested: {data["amount_invested"]}.'
+                )
+            })
+        return data
+
 
 class InvestmentProfitEntrySerializer(serializers.ModelSerializer):
     recorded_by_email = serializers.EmailField(source='recorded_by.email', read_only=True)
