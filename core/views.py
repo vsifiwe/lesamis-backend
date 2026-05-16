@@ -10,7 +10,7 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import ContributionReceipt, ContributionReceiptItem, FundAccount, Investment, InvestmentProfitEntry, Loan, LoanProduct, LoanRepayment, LedgerEntry, Member, MemberContributionObligation, MemberShareAccount, OtherCharge, Penalty, User
+from .models import ContributionReceipt, ContributionReceiptItem, FundAccount, Investment, InvestmentProfitEntry, Loan, LoanProduct, LoanRepayment, LedgerEntry, Member, MemberContributionObligation, MemberShareAccount, OtherCharge, Penalty, SocialActivityRecord, User
 from .permissions import IsAdminUser, IsAnyAuthenticatedUser
 from .serializers import (
     AdvanceContributionReceiptSerializer,
@@ -38,6 +38,8 @@ from .serializers import (
     MemberShareAccountSerializer,
     OtherChargeSerializer,
     PenaltySerializer,
+    SocialActivityRecordSerializer,
+    CreateSocialActivityRecordSerializer,
 )
 
 
@@ -780,3 +782,25 @@ class OtherChargeListCreateView(APIView):
         except DjangoValidationError as exc:
             raise DRFValidationError(detail=exc.message)
         return Response(OtherChargeSerializer(charge).data, status=status.HTTP_201_CREATED)
+
+
+class SocialActivityRecordListCreateView(APIView):
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        records = SocialActivityRecord.objects.select_related('fund_account', 'recorded_by').all()
+        return Response(SocialActivityRecordSerializer(records, many=True).data)
+
+    def post(self, request):
+        from django.core.exceptions import ValidationError as DjangoValidationError
+        from rest_framework.exceptions import ValidationError as DRFValidationError
+        from .ledger_service import record_social_expense
+        serializer = CreateSocialActivityRecordSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            with transaction.atomic():
+                record = serializer.save(recorded_by=request.user)
+                record_social_expense(record, request.user)
+        except DjangoValidationError as exc:
+            raise DRFValidationError(detail=exc.message)
+        return Response(SocialActivityRecordSerializer(record).data, status=status.HTTP_201_CREATED)

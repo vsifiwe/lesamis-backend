@@ -24,6 +24,7 @@ from .views import (
     ObligationListView,
     OtherChargeListCreateView,
     PenaltyListView,
+    SocialActivityRecordListCreateView,
     PenaltyWaiveView,
     ShareAdjustView,
 )
@@ -72,6 +73,9 @@ urlpatterns = [
 
     # Other charges
     path('other-charges/', OtherChargeListCreateView.as_view(), name='other_charge_list_create'),
+
+    # Social activities
+    path('social-activities/', SocialActivityRecordListCreateView.as_view(), name='social_activity_list_create'),
 
     # Member self-summary
     path('me/', MeView.as_view(), name='me'),

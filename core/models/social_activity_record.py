@@ -17,7 +17,7 @@ class SocialActivityRecord(models.Model):
     name         = models.CharField(max_length=255)
     description  = models.TextField(blank=True, default='')
     amount       = models.DecimalField(max_digits=12, decimal_places=2)
-    recorded_by  = models.ForeignKey('User', on_delete=models.PROTECT, related_name='recorded_social_activities')
+    recorded_by  = models.ForeignKey('User', on_delete=models.SET_NULL, null=True, blank=True, related_name='recorded_social_activities')
     created_at   = models.DateTimeField(auto_now_add=True)
     updated_at   = models.DateTimeField(auto_now=True)
 

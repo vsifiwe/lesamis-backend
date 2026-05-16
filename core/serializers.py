@@ -7,7 +7,7 @@ from django.db.models.functions import Coalesce
 from django.utils import timezone
 from rest_framework import serializers
 
-from .models import ContributionCycle, ContributionReceipt, ContributionReceiptItem, Investment, InvestmentProfitEntry, Loan, LoanProduct, Member, MemberContributionObligation, MemberShareAccount, OtherCharge, Penalty, SystemConfig, User
+from .models import ContributionCycle, ContributionReceipt, ContributionReceiptItem, Investment, InvestmentProfitEntry, Loan, LoanProduct, Member, MemberContributionObligation, MemberShareAccount, OtherCharge, Penalty, SocialActivityRecord, SystemConfig, User
 
 
 def _get_current_share_price() -> int:
@@ -146,6 +146,29 @@ class CreateOtherChargeSerializer(serializers.ModelSerializer):
                     {'description': 'A description of at least 50 characters is required for adjustments.'}
                 )
         return data
+
+
+# ---------------------------------------------------------------------------
+# Social Activity Records
+# ---------------------------------------------------------------------------
+
+class SocialActivityRecordSerializer(serializers.ModelSerializer):
+    fund_account_code = serializers.CharField(source='fund_account.code', read_only=True)
+    fund_account_name = serializers.CharField(source='fund_account.name', read_only=True)
+
+    class Meta:
+        model  = SocialActivityRecord
+        fields = [
+            'id', 'fund_account', 'fund_account_code', 'fund_account_name',
+            'activity_date', 'category', 'name', 'description', 'amount',
+            'recorded_by', 'created_at',
+        ]
+
+
+class CreateSocialActivityRecordSerializer(serializers.ModelSerializer):
+    class Meta:
+        model  = SocialActivityRecord
+        fields = ['fund_account', 'activity_date', 'category', 'name', 'description', 'amount']
 
 
 # ---------------------------------------------------------------------------
