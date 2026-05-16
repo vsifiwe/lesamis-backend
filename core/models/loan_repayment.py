@@ -16,7 +16,7 @@ class LoanRepayment(models.Model):
     paid_date      = models.DateField()
     payment_method = models.CharField(max_length=20, choices=PaymentMethod.choices)
     notes          = models.TextField(blank=True, default='')
-    recorded_by    = models.ForeignKey('User', on_delete=models.PROTECT, related_name='recorded_repayments')
+    recorded_by    = models.ForeignKey('User', on_delete=models.PROTECT, null=True, blank=True, related_name='recorded_repayments')
     created_at     = models.DateTimeField(auto_now_add=True)
     updated_at     = models.DateTimeField(auto_now=True)
 

@@ -23,7 +23,7 @@ class Loan(models.Model):
     first_due_date                  = models.DateField()
     status                          = models.CharField(max_length=20, choices=Status.choices, default=Status.ACTIVE)
     notes                           = models.TextField(blank=True, default='')
-    created_by                      = models.ForeignKey('User', on_delete=models.PROTECT, related_name='created_loans')
+    created_by                      = models.ForeignKey('User', on_delete=models.PROTECT, null=True, blank=True, related_name='created_loans')
     created_at                      = models.DateTimeField(auto_now_add=True)
     updated_at                      = models.DateTimeField(auto_now=True)
 
