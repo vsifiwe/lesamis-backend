@@ -225,7 +225,7 @@ class ContributionReceiptItemSerializer(serializers.ModelSerializer):
 class ContributionReceiptSerializer(serializers.ModelSerializer):
     items             = ContributionReceiptItemSerializer(many=True, read_only=True)
     confirmed_by_email = serializers.EmailField(source='confirmed_by.email', read_only=True, default=None)
-    created_by_email  = serializers.EmailField(source='created_by.email', read_only=True)
+    created_by_email  = serializers.EmailField(source='created_by.email', read_only=True, default=None)
 
     class Meta:
         model  = ContributionReceipt

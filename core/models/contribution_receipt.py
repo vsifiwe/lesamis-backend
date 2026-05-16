@@ -26,7 +26,7 @@ class ContributionReceipt(models.Model):
     confirmed_at     = models.DateTimeField(null=True, blank=True)
     rejection_reason = models.TextField(blank=True)
     notes            = models.TextField(blank=True)
-    created_by       = models.ForeignKey(User, on_delete=models.PROTECT, related_name='created_receipts')
+    created_by       = models.ForeignKey(User, on_delete=models.PROTECT, null=True, blank=True, related_name='created_receipts')
     created_at       = models.DateTimeField(auto_now_add=True)
     updated_at       = models.DateTimeField(auto_now=True)
 
