@@ -6,6 +6,7 @@ from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from drf_yasg.utils import swagger_auto_schema
+from rest_framework.pagination import CursorPagination
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -41,6 +42,13 @@ from .serializers import (
     SocialActivityRecordSerializer,
     CreateSocialActivityRecordSerializer,
 )
+
+
+class ReceiptCursorPagination(CursorPagination):
+    page_size = 15
+    page_size_query_param = 'page_size'
+    max_page_size = 100
+    ordering = ('-received_date', '-created_at', '-id')
 
 
 class MemberListCreateView(APIView):
@@ -167,9 +175,12 @@ class ContributionReceiptListCreateView(APIView):
             ContributionReceipt.objects
             .select_related('confirmed_by', 'created_by')
             .prefetch_related('items__obligation__member')
+            .order_by('-received_date', '-created_at', '-id')
         )
-        serializer = ContributionReceiptSerializer(receipts, many=True)
-        return Response(serializer.data)
+        paginator = ReceiptCursorPagination()
+        page = paginator.paginate_queryset(receipts, request, view=self)
+        serializer = ContributionReceiptSerializer(page, many=True)
+        return paginator.get_paginated_response(serializer.data)
 
     @swagger_auto_schema(
         request_body=CreateContributionReceiptSerializer,
@@ -643,7 +654,11 @@ class MemberSummaryView(APIView):
 
         total_penalties = (
             Penalty.objects
-            .filter(contribution_obligation__member=member, waived=False)
+            .filter(
+                contribution_obligation__member=member,
+                receipt__isnull=True,
+                waived=False,
+            )
             .aggregate(total=Coalesce(
                 Sum('amount'),
                 Decimal('0.00'),
@@ -687,13 +702,14 @@ class MemberContributionsView(APIView):
             .exclude(status=MemberContributionObligation.Status.CONFIRMED)
             .select_related('contribution_cycle')
             .prefetch_related('receipt_items__receipt')
+            .order_by('contribution_cycle__year', 'contribution_cycle__month')
         )
 
         purchases = (
             MemberContributionObligation.objects
             .filter(member=member, obligation_type=MemberContributionObligation.ObligationType.SHARE_PURCHASE)
-            .order_by('-created_at')
             .prefetch_related('receipt_items__receipt')
+            .order_by('-created_at')
         )
 
         return Response({
@@ -725,6 +741,7 @@ class MemberLoansView(APIView):
                     output_field=DecimalField(max_digits=14, decimal_places=2),
                 )
             )
+            .order_by('-issued_date', '-created_at')
         )
 
         return Response(MemberLoanSerializer(loans, many=True).data)
@@ -745,6 +762,7 @@ class MemberPenaltiesView(APIView):
             Penalty.objects
             .filter(contribution_obligation__member=member)
             .select_related('contribution_obligation__contribution_cycle')
+            .order_by('-created_at')
         )
 
         return Response(MemberPenaltySerializer(penalties, many=True).data)
@@ -755,10 +773,14 @@ class MeView(APIView):
 
     def get(self, request):
         user = request.user
+        member = getattr(user, 'member', None)
         role = "Admin" if user.role == User.Role.ADMIN else "Member"
         return Response({
             "full_name": user.full_name,
             "role": role,
+            "member_id": str(member.id) if member else None,
+            "member_number": member.member_number if member else None,
+            "has_member_profile": member is not None,
         })
 
 
