@@ -21,7 +21,7 @@ class OtherCharge(models.Model):
     fund_account = models.ForeignKey('FundAccount', on_delete=models.PROTECT, related_name='other_charges')
     charge_date  = models.DateField()
     description  = models.TextField()
-    recorded_by  = models.ForeignKey('User', on_delete=models.PROTECT, related_name='recorded_charges')
+    recorded_by  = models.ForeignKey('User', on_delete=models.PROTECT, null=True, blank=True, related_name='recorded_charges')
     created_at  = models.DateTimeField(auto_now_add=True)
     updated_at  = models.DateTimeField(auto_now=True)
 
