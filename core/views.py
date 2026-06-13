@@ -11,7 +11,7 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import ContributionReceipt, ContributionReceiptItem, FundAccount, Investment, InvestmentProfitEntry, Loan, LoanProduct, LoanRepayment, LedgerEntry, Member, MemberContributionObligation, MemberShareAccount, OtherCharge, Penalty, SocialActivityRecord, User
+from .models import BankReconciliationSnapshot, ContributionReceipt, ContributionReceiptItem, FundAccount, HistoricalContributionEntry, Investment, InvestmentProfitEntry, Loan, LoanProduct, LoanRepayment, LedgerEntry, Member, MemberContributionObligation, MemberShareAccount, OtherCharge, Penalty, SocialActivityRecord, User
 from .permissions import IsAdminUser, IsAnyAuthenticatedUser
 from .serializers import (
     AdvanceContributionReceiptSerializer,
@@ -366,6 +366,7 @@ class LoanListCreateView(APIView):
         loans = (
             Loan.objects
             .select_related('member', 'loan_product', 'created_by')
+            .prefetch_related('repayment_schedule')
             .all()
         )
         return Response(LoanSerializer(loans, many=True).data)
@@ -385,12 +386,13 @@ class LoanListCreateView(APIView):
     def post(self, request):
         from django.core.exceptions import ValidationError as DjangoValidationError
         from rest_framework.exceptions import ValidationError as DRFValidationError
-        from .ledger_service import record_loan_disbursement
+        from .ledger_service import create_repayment_schedule, record_loan_disbursement
         serializer = CreateLoanSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
             with transaction.atomic():
                 loan = serializer.save(created_by=request.user)
+                create_repayment_schedule(loan)
                 record_loan_disbursement(loan, request.user)
         except DjangoValidationError as exc:
             raise DRFValidationError(detail=exc.message)
@@ -577,11 +579,32 @@ class DashboardSummaryView(APIView):
             )
             investment_projection_total += expected_maturity_value - investment.total_profit
 
-        expected_total = (
+        calculated_expected_total = (
             current_available +
             loan_projection_totals['outstanding_loan_repayments'] +
             unpaid_penalties_total +
             investment_projection_total
+        )
+        bank_reconciliation = BankReconciliationSnapshot.objects.order_by('-as_of_date').first()
+        expected_total = (
+            bank_reconciliation.expected_total_assets
+            if bank_reconciliation is not None
+            else calculated_expected_total
+        )
+        loan_receivables = (
+            Loan.objects.filter(status=Loan.Status.ACTIVE)
+            .aggregate(total=Coalesce(
+                Sum('source_outstanding_amount'),
+                Decimal('0.00'),
+                output_field=DecimalField(max_digits=14, decimal_places=2),
+            ))['total']
+        )
+        investment_assets = (
+            Investment.objects.aggregate(total=Coalesce(
+                Sum('amount_invested'),
+                Decimal('0.00'),
+                output_field=DecimalField(max_digits=14, decimal_places=2),
+            ))['total']
         )
 
         data = {
@@ -595,6 +618,14 @@ class DashboardSummaryView(APIView):
                 'realized_profits': realized_profits.quantize(Decimal('0.01')),
                 'expected_total': expected_total.quantize(Decimal('0.01')),
                 'available_for_investment': available_for_investment.quantize(Decimal('0.01')),
+                'cash_balance': current_available.quantize(Decimal('0.01')),
+                'loan_receivables': loan_receivables.quantize(Decimal('0.01')),
+                'investment_assets': investment_assets.quantize(Decimal('0.01')),
+                'restricted_social_balance': socials.quantize(Decimal('0.01')),
+                'projected_total_assets': expected_total.quantize(Decimal('0.01')),
+                'calculated_projection': calculated_expected_total.quantize(Decimal('0.01')),
+                'stated_bank_balance': bank_reconciliation.stated_bank_balance if bank_reconciliation else None,
+                'bank_reconciliation_variance': bank_reconciliation.variance if bank_reconciliation else None,
             },
         }
         return Response(data)
@@ -639,7 +670,17 @@ class MemberSummaryView(APIView):
             ))['total']
         )
 
-        total_contributions = receipt_contributions + share_purchase_contributions
+        historical_contributions = (
+            HistoricalContributionEntry.objects
+            .filter(member=member)
+            .aggregate(total=Coalesce(
+                Sum('amount'),
+                Decimal('0.00'),
+                output_field=DecimalField(max_digits=14, decimal_places=2),
+            ))['total']
+        )
+
+        total_contributions = receipt_contributions + share_purchase_contributions + historical_contributions
 
         active_loans_agg = Loan.objects.filter(
             member=member, status=Loan.Status.ACTIVE
@@ -714,6 +755,12 @@ class MemberContributionsView(APIView):
 
         return Response({
             'received':  MemberContributionReceivedSerializer(received, many=True).data,
+            'historical': list(
+                HistoricalContributionEntry.objects
+                .filter(member=member)
+                .order_by('-year', '-month', 'fund_type')
+                .values('id', 'year', 'month', 'fund_type', 'amount')
+            ),
             'pending':   MemberContributionPendingSerializer(pending, many=True).data,
             'purchases': MemberSharePurchaseSerializer(purchases, many=True).data,
         })
@@ -734,6 +781,7 @@ class MemberLoansView(APIView):
             Loan.objects
             .filter(member=member)
             .select_related('loan_product')
+            .prefetch_related('repayment_schedule')
             .annotate(
                 total_paid=Coalesce(
                     Sum('repayments__amount_paid'),

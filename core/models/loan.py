@@ -19,8 +19,14 @@ class Loan(models.Model):
     duration_months_snapshot        = models.PositiveSmallIntegerField()
     total_repayment_amount          = models.DecimalField(max_digits=12, decimal_places=2)
     monthly_installment_amount      = models.DecimalField(max_digits=12, decimal_places=2)
-    issued_date                     = models.DateField()
-    first_due_date                  = models.DateField()
+    issued_date                     = models.DateField(null=True, blank=True)
+    first_due_date                  = models.DateField(null=True, blank=True)
+    is_opening_balance              = models.BooleanField(default=False)
+    opening_principal_amount        = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    opening_interest_amount         = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    opening_paid_amount             = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    source_outstanding_amount       = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    import_batch                    = models.ForeignKey('ImportBatch', on_delete=models.SET_NULL, null=True, blank=True, related_name='loans')
     status                          = models.CharField(max_length=20, choices=Status.choices, default=Status.ACTIVE)
     notes                           = models.TextField(blank=True, default='')
     created_by                      = models.ForeignKey('User', on_delete=models.PROTECT, null=True, blank=True, related_name='created_loans')
@@ -29,6 +35,15 @@ class Loan(models.Model):
 
     class Meta:
         ordering = ['-created_at']
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    models.Q(is_opening_balance=True, issued_date__isnull=True, first_due_date__isnull=True)
+                    | models.Q(is_opening_balance=False, issued_date__isnull=False, first_due_date__isnull=False)
+                ),
+                name='loan_opening_balance_dates',
+            ),
+        ]
 
     def __str__(self):
         return f'Loan {self.id} — {self.member} ({self.status})'
