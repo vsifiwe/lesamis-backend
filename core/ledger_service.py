@@ -4,13 +4,15 @@ ledger_service.py
 Auto-generates LedgerEntry rows whenever money moves.
 Call the appropriate function from the view/serializer after the source record is saved.
 """
+import calendar
+import datetime
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Q, Sum
 
-from .models import FundAccount, LedgerEntry, Penalty
+from .models import FundAccount, LedgerEntry, LoanRepaymentSchedule, Penalty
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -39,6 +41,31 @@ def _entry(fund_account, member, entry_date, entry_type, amount, direction,
         notes=notes,
         recorded_by=recorded_by,
     )
+
+
+def create_repayment_schedule(loan):
+    """Create a projection schedule without creating repayment transactions."""
+    if loan.is_opening_balance or loan.first_due_date is None:
+        return
+    due_date = loan.first_due_date
+    schedules = []
+    for installment_number in range(1, loan.duration_months_snapshot + 1):
+        amount_due = (
+            loan.total_repayment_amount - loan.monthly_installment_amount * (loan.duration_months_snapshot - 1)
+            if installment_number == loan.duration_months_snapshot
+            else loan.monthly_installment_amount
+        )
+        schedules.append(LoanRepaymentSchedule(
+            loan=loan,
+            installment_number=installment_number,
+            due_date=due_date,
+            amount_due=amount_due,
+        ))
+        month_index = due_date.month
+        year = due_date.year + month_index // 12
+        month = month_index % 12 + 1
+        due_date = datetime.date(year, month, min(due_date.day, calendar.monthrange(year, month)[1]))
+    LoanRepaymentSchedule.objects.bulk_create(schedules)
 
 
 # ---------------------------------------------------------------------------
@@ -236,6 +263,23 @@ def record_investment_profit(profit_entry, user):
         direction=LedgerEntry.Direction.CREDIT,
         reference_id=profit_entry.id,
         reference_type='investment_profit_entry',
+        recorded_by=user,
+    )
+
+
+def record_income(income_entry, user):
+    """Credit CAPITAL for typed non-contribution income."""
+    LedgerEntry.objects.create(
+        fund_account=_get_fund('CAPITAL'),
+        member=None,
+        entry_date=income_entry.income_date,
+        date_precision=income_entry.date_precision,
+        entry_type=income_entry.income_type,
+        amount=income_entry.amount,
+        direction=LedgerEntry.Direction.CREDIT,
+        reference_id=income_entry.id,
+        reference_type='income_entry',
+        notes=income_entry.description,
         recorded_by=user,
     )
 

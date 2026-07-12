@@ -7,7 +7,7 @@ from django.db.models.functions import Coalesce
 from django.utils import timezone
 from rest_framework import serializers
 
-from .models import ContributionCycle, ContributionReceipt, ContributionReceiptItem, Investment, InvestmentProfitEntry, Loan, LoanProduct, Member, MemberContributionObligation, MemberShareAccount, OtherCharge, Penalty, SocialActivityRecord, SystemConfig, User
+from .models import ContributionCycle, ContributionReceipt, ContributionReceiptItem, Investment, InvestmentProfitEntry, Loan, LoanProduct, LoanRepaymentSchedule, Member, MemberContributionObligation, MemberShareAccount, OtherCharge, Penalty, SocialActivityRecord, SystemConfig, User
 
 
 def _get_current_share_price() -> int:
@@ -129,6 +129,7 @@ class OtherChargeSerializer(serializers.ModelSerializer):
             'id', 'charge_type', 'amount', 'direction',
             'fund_account', 'fund_account_name',
             'charge_date', 'description',
+            'date_precision',
             'recorded_by', 'recorded_by_email', 'created_at',
         ]
 
@@ -139,6 +140,8 @@ class CreateOtherChargeSerializer(serializers.ModelSerializer):
         fields = ['charge_type', 'amount', 'direction', 'fund_account', 'charge_date', 'description']
 
     def validate(self, data):
+        if not data.get('charge_date'):
+            raise serializers.ValidationError({'charge_date': 'An exact date is required for new charges.'})
         if data.get('charge_type') == 'adjustment':
             desc = (data.get('description') or '').strip()
             if len(desc) < 50:
@@ -161,6 +164,7 @@ class SocialActivityRecordSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'fund_account', 'fund_account_code', 'fund_account_name',
             'activity_date', 'category', 'name', 'description', 'amount',
+            'date_precision',
             'recorded_by', 'created_at',
         ]
 
@@ -169,6 +173,11 @@ class CreateSocialActivityRecordSerializer(serializers.ModelSerializer):
     class Meta:
         model  = SocialActivityRecord
         fields = ['fund_account', 'activity_date', 'category', 'name', 'description', 'amount']
+
+    def validate(self, data):
+        if not data.get('activity_date'):
+            raise serializers.ValidationError({'activity_date': 'An exact date is required for new social expenses.'})
+        return data
 
 
 # ---------------------------------------------------------------------------
@@ -534,6 +543,7 @@ class InvestmentProfitEntrySerializer(serializers.ModelSerializer):
         model  = InvestmentProfitEntry
         fields = [
             'id', 'investment', 'profit_date', 'amount', 'description',
+            'gross_amount', 'withholding_tax_amount', 'is_net_coupon_income',
             'recorded_by', 'recorded_by_email',
             'created_at', 'updated_at',
         ]
@@ -543,7 +553,7 @@ class InvestmentProfitEntrySerializer(serializers.ModelSerializer):
 class CreateInvestmentProfitEntrySerializer(serializers.ModelSerializer):
     class Meta:
         model  = InvestmentProfitEntry
-        fields = ['profit_date', 'amount', 'description']
+        fields = ['profit_date', 'amount', 'gross_amount', 'withholding_tax_amount', 'is_net_coupon_income', 'description']
         extra_kwargs = {
             'description': {'required': False, 'allow_blank': True},
         }
@@ -567,11 +577,18 @@ class LoanProductSerializer(serializers.ModelSerializer):
 # Loans
 # ---------------------------------------------------------------------------
 
+class LoanRepaymentScheduleSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = LoanRepaymentSchedule
+        fields = ['id', 'installment_number', 'due_date', 'amount_due', 'status']
+
+
 class LoanSerializer(serializers.ModelSerializer):
     member_name        = serializers.SerializerMethodField()
     member_number      = serializers.CharField(source='member.member_number', read_only=True)
     loan_product_name  = serializers.CharField(source='loan_product.name', read_only=True)
     created_by_email   = serializers.EmailField(source='created_by.email', read_only=True)
+    repayment_schedule = LoanRepaymentScheduleSerializer(many=True, read_only=True)
 
     class Meta:
         model  = Loan
@@ -581,6 +598,9 @@ class LoanSerializer(serializers.ModelSerializer):
             'principal_amount', 'interest_rate_percent_snapshot',
             'duration_months_snapshot', 'total_repayment_amount',
             'monthly_installment_amount', 'issued_date', 'first_due_date',
+            'is_opening_balance', 'opening_principal_amount', 'opening_interest_amount',
+            'opening_paid_amount', 'source_outstanding_amount',
+            'repayment_schedule',
             'status', 'notes', 'created_by', 'created_by_email',
             'created_at', 'updated_at',
         ]
@@ -790,9 +810,12 @@ class MemberLoanSerializer(serializers.ModelSerializer):
     loan_product_name  = serializers.CharField(source='loan_product.name', read_only=True)
     total_paid         = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
     outstanding_amount = serializers.SerializerMethodField()
+    repayment_schedule = LoanRepaymentScheduleSerializer(many=True, read_only=True)
 
     def get_outstanding_amount(self, obj):
-        return (obj.total_repayment_amount - obj.total_paid).quantize(Decimal('0.01'))
+        if obj.source_outstanding_amount is not None:
+            return obj.source_outstanding_amount
+        return max(Decimal('0.00'), obj.total_repayment_amount - obj.total_paid).quantize(Decimal('0.01'))
 
     class Meta:
         model  = Loan
@@ -801,5 +824,7 @@ class MemberLoanSerializer(serializers.ModelSerializer):
             'principal_amount', 'interest_rate_percent_snapshot', 'duration_months_snapshot',
             'total_repayment_amount', 'monthly_installment_amount',
             'outstanding_amount', 'total_paid',
-            'issued_date', 'first_due_date', 'status',
+            'issued_date', 'first_due_date', 'status', 'is_opening_balance',
+            'opening_principal_amount', 'opening_interest_amount', 'opening_paid_amount',
+            'repayment_schedule',
         ]

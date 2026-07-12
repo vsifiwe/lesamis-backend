@@ -2,7 +2,38 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.utils.translation import gettext_lazy as _
 
-from .models import ContributionCycle, ContributionReceipt, ContributionReceiptItem, FundAccount, Investment, InvestmentProfitEntry, LedgerEntry, Loan, LoanProduct, LoanRepayment, Member, MemberContributionObligation, MemberShareAccount, OtherCharge, Penalty, SocialActivityRecord, SystemConfig, User
+from .models import BankReconciliationSnapshot, ContributionCycle, ContributionReceipt, ContributionReceiptItem, FundAccount, HistoricalContributionEntry, ImportBatch, IncomeEntry, Investment, InvestmentProfitEntry, LedgerEntry, Loan, LoanProduct, LoanRepayment, LoanRepaymentSchedule, Member, MemberContributionObligation, MemberShareAccount, OtherCharge, Penalty, SocialActivityRecord, SourceReference, SystemConfig, User
+
+
+@admin.register(ImportBatch)
+class ImportBatchAdmin(admin.ModelAdmin):
+    list_display = ('source_name', 'fixture_version', 'declared_summary_date', 'latest_transaction_date', 'imported_at')
+    readonly_fields = ('source_sha256', 'imported_at')
+
+
+@admin.register(SourceReference)
+class SourceReferenceAdmin(admin.ModelAdmin):
+    list_display = ('entity_type', 'sheet_name', 'cell_reference', 'import_batch')
+    list_filter = ('entity_type', 'sheet_name')
+    search_fields = ('entity_id', 'source_value', 'notes')
+
+
+@admin.register(HistoricalContributionEntry)
+class HistoricalContributionEntryAdmin(admin.ModelAdmin):
+    list_display = ('member', 'year', 'month', 'fund_type', 'amount')
+    list_filter = ('year', 'month', 'fund_type')
+    search_fields = ('member__member_number', 'member__first_name')
+
+
+@admin.register(IncomeEntry)
+class IncomeEntryAdmin(admin.ModelAdmin):
+    list_display = ('income_type', 'amount', 'income_date', 'date_precision')
+    list_filter = ('income_type', 'date_precision')
+
+
+@admin.register(BankReconciliationSnapshot)
+class BankReconciliationSnapshotAdmin(admin.ModelAdmin):
+    list_display = ('as_of_date', 'calculated_cash_balance', 'stated_bank_balance', 'variance', 'expected_total_assets')
 
 
 @admin.register(User)
@@ -88,6 +119,12 @@ class LoanRepaymentAdmin(admin.ModelAdmin):
     search_fields   = ('loan__id',)
     ordering        = ('-paid_date',)
     readonly_fields = ('created_at', 'updated_at')
+
+
+@admin.register(LoanRepaymentSchedule)
+class LoanRepaymentScheduleAdmin(admin.ModelAdmin):
+    list_display = ('loan', 'installment_number', 'due_date', 'amount_due', 'status')
+    list_filter = ('status', 'due_date')
 
 
 @admin.register(Loan)

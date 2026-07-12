@@ -26,6 +26,7 @@ class Investment(models.Model):
     status          = models.CharField(max_length=20, choices=Status.choices, default=Status.ACTIVE)
     description     = models.TextField(blank=True, default='')
     created_by      = models.ForeignKey('User', on_delete=models.PROTECT, null=True, blank=True, related_name='created_investments')
+    import_batch    = models.ForeignKey('ImportBatch', on_delete=models.SET_NULL, null=True, blank=True, related_name='investments')
     created_at      = models.DateTimeField(auto_now_add=True)
     updated_at      = models.DateTimeField(auto_now=True)
 

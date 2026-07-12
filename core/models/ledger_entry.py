@@ -18,6 +18,11 @@ class LedgerEntry(models.Model):
         SOCIAL_EXPENSE           = 'social_expense',           'Social Expense'
         SOCIAL_PLUS_EXPENSE      = 'social_plus_expense',      'Social+ Expense'
         SHARE_PURCHASE           = 'share_purchase',           'Share Purchase'
+        BANK_INTEREST            = 'bank_interest',            'Bank Interest'
+        JOINING_FEE              = 'joining_fee',              'Joining Fee'
+        CONTRIBUTION_PENALTY     = 'contribution_penalty',     'Collected Contribution Penalty'
+        LOAN_EXIT_PENALTY        = 'loan_exit_penalty',        'Collected Loan/Exit Penalty'
+        OPENING_BALANCE          = 'opening_balance',          'Opening Balance'
 
     class Direction(models.TextChoices):
         DEBIT  = 'debit',  'Debit'
@@ -26,7 +31,10 @@ class LedgerEntry(models.Model):
     id             = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     fund_account   = models.ForeignKey('FundAccount', on_delete=models.PROTECT, related_name='ledger_entries')
     member         = models.ForeignKey('Member', on_delete=models.SET_NULL, null=True, blank=True, related_name='ledger_entries')
-    entry_date     = models.DateField()
+    entry_date     = models.DateField(null=True, blank=True)
+    date_precision = models.CharField(max_length=10, choices=[
+        ('exact', 'Exact'), ('month', 'Month'), ('period', 'Period'), ('unknown', 'Unknown'),
+    ], default='exact')
     entry_type     = models.CharField(max_length=30, choices=EntryType.choices)
     amount         = models.DecimalField(max_digits=14, decimal_places=2)
     direction      = models.CharField(max_length=10, choices=Direction.choices)
@@ -39,6 +47,15 @@ class LedgerEntry(models.Model):
 
     class Meta:
         ordering = ['-entry_date', '-created_at']
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    models.Q(date_precision='unknown', entry_date__isnull=True)
+                    | models.Q(date_precision__in=['exact', 'month', 'period'], entry_date__isnull=False)
+                ),
+                name='ledger_date_matches_precision',
+            ),
+        ]
 
     def __str__(self):
         return f'{self.get_entry_type_display()} {self.direction} {self.amount} ({self.entry_date})'
