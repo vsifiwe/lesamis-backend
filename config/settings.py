@@ -25,10 +25,12 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-3kg-q-9=locbc#)e=88_m+%wylpp25*ga_w5mp6v2c0d*$%yw+'
+SECRET_KEY = os.getenv(
+    "SECRET_KEY", "django-insecure-3kg-q-9=locbc#)e=88_m+%wylpp25*ga_w5mp6v2c0d*$%yw+"
+)
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.getenv("DEBUG", "False").lower() in ("1", "true", "yes", "on")
 
 ALLOWED_HOSTS = [h.strip() for h in os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1").split(",") if h.strip()]
 
@@ -118,6 +120,11 @@ CORS_ALLOWED_ORIGINS = [
     o.strip()
     for o in os.getenv("CORS_ALLOWED_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000,https://www.lesamis.rw").split(",")
     if o.strip()
+]
+CSRF_TRUSTED_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv("CSRF_TRUSTED_ORIGINS", "https://api.lesamis.rw").split(",")
+    if origin.strip()
 ]
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_METHODS = [
