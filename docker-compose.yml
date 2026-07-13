@@ -24,7 +24,7 @@ services:
       DB_PASSWORD: les_amis
       DB_HOST: db
       DB_PORT: 5432
-      ALLOWED_HOSTS: localhost,127.0.0.1
+      ALLOWED_HOSTS: localhost,127.0.0.1,lesamis.rw
     ports:
       - "8000:8000"
     volumes:
