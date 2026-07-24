@@ -715,6 +715,47 @@ class MemberSummaryView(APIView):
         })
 
 
+def _member_contributions_payload(member):
+    received = (
+        ContributionReceiptItem.objects
+        .filter(
+            obligation__member=member,
+            obligation__obligation_type=MemberContributionObligation.ObligationType.CONTRIBUTION,
+            receipt__status=ContributionReceipt.Status.CONFIRMED,
+        )
+        .select_related('obligation__contribution_cycle', 'receipt')
+        .order_by('-receipt__received_date', '-id')
+    )
+
+    pending = (
+        MemberContributionObligation.objects
+        .filter(member=member, obligation_type=MemberContributionObligation.ObligationType.CONTRIBUTION)
+        .exclude(status=MemberContributionObligation.Status.CONFIRMED)
+        .select_related('contribution_cycle')
+        .prefetch_related('receipt_items__receipt')
+        .order_by('contribution_cycle__year', 'contribution_cycle__month')
+    )
+
+    purchases = (
+        MemberContributionObligation.objects
+        .filter(member=member, obligation_type=MemberContributionObligation.ObligationType.SHARE_PURCHASE)
+        .prefetch_related('receipt_items__receipt')
+        .order_by('-created_at')
+    )
+
+    return {
+        'received': MemberContributionReceivedSerializer(received, many=True).data,
+        'historical': list(
+            HistoricalContributionEntry.objects
+            .filter(member=member)
+            .order_by('-year', '-month', 'fund_type')
+            .values('id', 'year', 'month', 'fund_type', 'amount')
+        ),
+        'pending': MemberContributionPendingSerializer(pending, many=True).data,
+        'purchases': MemberSharePurchaseSerializer(purchases, many=True).data,
+    }
+
+
 class MemberContributionsView(APIView):
     permission_classes = [IsAnyAuthenticatedUser]
 
@@ -726,43 +767,20 @@ class MemberContributionsView(APIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        received = (
-            ContributionReceiptItem.objects
-            .filter(
-                obligation__member=member,
-                obligation__obligation_type=MemberContributionObligation.ObligationType.CONTRIBUTION,
-                receipt__status=ContributionReceipt.Status.CONFIRMED,
-            )
-            .select_related('obligation__contribution_cycle', 'receipt')
-            .order_by('-receipt__received_date')
-        )
+        return Response(_member_contributions_payload(member))
 
-        pending = (
-            MemberContributionObligation.objects
-            .filter(member=member, obligation_type=MemberContributionObligation.ObligationType.CONTRIBUTION)
-            .exclude(status=MemberContributionObligation.Status.CONFIRMED)
-            .select_related('contribution_cycle')
-            .prefetch_related('receipt_items__receipt')
-            .order_by('contribution_cycle__year', 'contribution_cycle__month')
-        )
 
-        purchases = (
-            MemberContributionObligation.objects
-            .filter(member=member, obligation_type=MemberContributionObligation.ObligationType.SHARE_PURCHASE)
-            .prefetch_related('receipt_items__receipt')
-            .order_by('-created_at')
-        )
+class AdminMemberContributionsView(APIView):
+    permission_classes = [IsAdminUser]
 
+    def get(self, request, pk):
+        member = get_object_or_404(
+            Member.objects.select_related('share_account'),
+            pk=pk,
+        )
         return Response({
-            'received':  MemberContributionReceivedSerializer(received, many=True).data,
-            'historical': list(
-                HistoricalContributionEntry.objects
-                .filter(member=member)
-                .order_by('-year', '-month', 'fund_type')
-                .values('id', 'year', 'month', 'fund_type', 'amount')
-            ),
-            'pending':   MemberContributionPendingSerializer(pending, many=True).data,
-            'purchases': MemberSharePurchaseSerializer(purchases, many=True).data,
+            'member': MemberSerializer(member).data,
+            **_member_contributions_payload(member),
         })
 
 

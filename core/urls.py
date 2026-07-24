@@ -5,6 +5,7 @@ from .tokens import MemberTokenObtainPairView
 from .views import (
     AdvanceContributionReceiptCreateView,
     AdvanceContributionReceiptPreviewView,
+    AdminMemberContributionsView,
     ContributionReceiptListCreateView,
     DashboardSummaryView,
     FundAccountBalanceView,
@@ -37,6 +38,7 @@ urlpatterns = [
     # Members
     path('members/', MemberListCreateView.as_view(), name='member_list_create'),
     path('members/<uuid:pk>/', MemberDetailView.as_view(), name='member_detail'),
+    path('members/<uuid:pk>/contributions/', AdminMemberContributionsView.as_view(), name='member_contributions'),
     path('members/<uuid:pk>/deactivate/', MemberDeactivateView.as_view(), name='member_deactivate'),
 
     # Shares
