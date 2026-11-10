@@ -1,6 +1,6 @@
 # Deploy the Les Amis API
 
-Pushes to `main`, `staging`, and `dev` deploy the Django backend after CI passes. Next.js continues to deploy from its own repository through Netlify.
+Pushes to `main`, `staging`, and `dev` deploy the Django backend automatically. Next.js continues to deploy from its own repository through Netlify.
 
 | Branch | GitHub Environment | API hostname | VPS upstream |
 | --- | --- | --- | --- |
@@ -82,7 +82,7 @@ Read the public key from `/etc/ssh/ssh_host_ed25519_key.pub` through the trusted
 Check the remote branches with `git ls-remote --heads origin main staging dev`. Put the reviewed workflow and application commit on `dev` first, creating the branch if absent. Then promote the commit to `staging` and finally `main`. Use the existing branch history when a branch already exists.
 
 - Check `/healthz/`, `/api/v1/docs/`, and `/static/admin/css/base.css` over each public HTTPS hostname. Confirm that unauthenticated requests to `/api/v1/members/` and `/api/v1/fund-accounts/balances/` are rejected. Point the production Netlify build at `NEXT_PUBLIC_API_URL=https://api.lesamis.rw` and confirm login and an API-backed page.
-- On dev, confirm a second push updates only dev and preserves data. Push a test failure and confirm SSH is never reached. To exercise the remote migration failure path, temporarily set `DB_HOST=invalid.invalid` in the dev environment file and rerun the current commit. Restore `DB_HOST=postgres` and rerun to recover. Verify that an older workflow rerun reports **Release superseded** and that other branch pushes and tags do not deploy.
+- On dev, confirm a second push updates only dev and preserves data. To exercise the remote migration failure path, temporarily set `DB_HOST=invalid.invalid` in the dev environment file and rerun the current commit. Restore `DB_HOST=postgres` and rerun to recover. Verify that an older workflow rerun reports **Release superseded** and that other branch pushes and tags do not deploy.
 - Check that each new database contains its own workbook import. The same historical records are seeded in all three databases. The APIs are publicly reachable and Django protects authenticated endpoints. The committed workbook fixture itself is readable in the public backend repository.
 
 ## 4. Recover a failed release

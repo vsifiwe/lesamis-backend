@@ -9,4 +9,5 @@ __pycache__/
 *.pywz
 *.pyzw
 .env
+.env.dev
 /staticfiles/
