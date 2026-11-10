@@ -48,6 +48,7 @@ export DEPLOY_UID="$(id -u)" DEPLOY_GID="$(id -g)"
 
 [[ -r "$APP_ENV_FILE" && -d "$root/backups" && -d "$static_root/releases" ]] ||
     die "Provision the $target environment before deploying."
+cd "$root"
 exec 9>"$root/deploy.lock"
 flock -w 600 9 || die "Another $target deployment holds the lock."
 

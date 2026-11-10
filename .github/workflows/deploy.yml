@@ -32,14 +32,15 @@ jobs:
           VPS_PORT: ${{ vars.VPS_PORT }}
           VPS_USER: ${{ vars.VPS_USER }}
           VPS_KNOWN_HOSTS: ${{ vars.VPS_KNOWN_HOSTS }}
-          VPS_DEPLOY_KEY: ${{ secrets.VPS_DEPLOY_KEY }}
+          VPS_PASSWORD: ${{ secrets.VPS_PASSWORD }}
         run: |
-          : "${VPS_HOST:?}" "${VPS_PORT:?}" "${VPS_USER:?}" "${VPS_KNOWN_HOSTS:?}" "${VPS_DEPLOY_KEY:?}"
+          : "${VPS_HOST:?}" "${VPS_PORT:?}" "${VPS_USER:?}" "${VPS_KNOWN_HOSTS:?}" "${VPS_PASSWORD:?}"
           umask 077
           ssh_dir=$(mktemp -d)
           trap 'rm -rf -- "$ssh_dir"' EXIT
-          printf '%s\n' "$VPS_DEPLOY_KEY" > "$ssh_dir/key"
           printf '%s\n' "$VPS_KNOWN_HOSTS" > "$ssh_dir/known_hosts"
+          printf '%s\n' '#!/bin/sh' 'printf "%s\n" "$VPS_PASSWORD"' > "$ssh_dir/askpass"
+          chmod 700 "$ssh_dir/askpass"
 
           head_sha=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$GITHUB_REF_NAME" --jq .object.sha)
           if [[ "$head_sha" != "$GITHUB_SHA" ]]; then
@@ -48,8 +49,10 @@ jobs:
           fi
 
           git -c tar.umask=0022 archive --format=tar "$GITHUB_SHA" |
-            ssh -T -F /dev/null -i "$ssh_dir/key" -p "$VPS_PORT" -l "$VPS_USER" \
-              -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            SSH_ASKPASS="$ssh_dir/askpass" SSH_ASKPASS_REQUIRE=force \
+            ssh -T -F /dev/null -p "$VPS_PORT" -l "$VPS_USER" \
+              -o PreferredAuthentications=password -o PubkeyAuthentication=no \
+              -o NumberOfPasswordPrompts=1 -o StrictHostKeyChecking=yes \
               -o "UserKnownHostsFile=$ssh_dir/known_hosts" -o GlobalKnownHostsFile=/dev/null \
               -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
               -- "$VPS_HOST" "$GITHUB_SHA"
