@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     environment:
-      name: ${{ github.ref_name == 'main' && 'production' || github.ref_name }}
+      name: vps
       url: https://${{ github.ref_name == 'main' && 'api' || format('api-{0}', github.ref_name) }}.lesamis.rw
     concurrency:
       group: vps-deploy-${{ github.ref_name }}
@@ -30,15 +30,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           VPS_HOST: ${{ vars.VPS_HOST }}
           VPS_PORT: ${{ vars.VPS_PORT }}
-          VPS_USER: ${{ vars.VPS_USER }}
-          VPS_KNOWN_HOSTS: ${{ vars.VPS_KNOWN_HOSTS }}
           VPS_PASSWORD: ${{ secrets.VPS_PASSWORD }}
         run: |
-          : "${VPS_HOST:?}" "${VPS_PORT:?}" "${VPS_USER:?}" "${VPS_KNOWN_HOSTS:?}" "${VPS_PASSWORD:?}"
+          : "${VPS_HOST:?}" "${VPS_PORT:?}" "${VPS_PASSWORD:?}"
           umask 077
           ssh_dir=$(mktemp -d)
           trap 'rm -rf -- "$ssh_dir"' EXIT
-          printf '%s\n' "$VPS_KNOWN_HOSTS" > "$ssh_dir/known_hosts"
+          printf '%s\n' 'les-amis-vps ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILSVn/AIT2lq5h4EYmjPekeD69rclY96slkIOTMllVSc' > "$ssh_dir/known_hosts"
           printf '%s\n' '#!/bin/sh' 'printf "%s\n" "$VPS_PASSWORD"' > "$ssh_dir/askpass"
           chmod 700 "$ssh_dir/askpass"
 
@@ -48,11 +46,17 @@ jobs:
             exit 1
           fi
 
+          case "$GITHUB_REF_NAME" in
+            main) target=production ;;
+            staging|dev) target=$GITHUB_REF_NAME ;;
+            *) exit 1 ;;
+          esac
           git -c tar.umask=0022 archive --format=tar "$GITHUB_SHA" |
             SSH_ASKPASS="$ssh_dir/askpass" SSH_ASKPASS_REQUIRE=force \
-            ssh -T -F /dev/null -p "$VPS_PORT" -l "$VPS_USER" \
+            ssh -T -F /dev/null -p "$VPS_PORT" -l lesamis-deploy \
               -o PreferredAuthentications=password -o PubkeyAuthentication=no \
               -o NumberOfPasswordPrompts=1 -o StrictHostKeyChecking=yes \
+              -o HostKeyAlias=les-amis-vps \
               -o "UserKnownHostsFile=$ssh_dir/known_hosts" -o GlobalKnownHostsFile=/dev/null \
               -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
-              -- "$VPS_HOST" "$GITHUB_SHA"
+              -- "$VPS_HOST" "$target" "$GITHUB_SHA"

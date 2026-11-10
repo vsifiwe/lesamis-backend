@@ -13,29 +13,30 @@ is_sha() {
 }
 
 mode=${1:-}
-target=${2:-}
-case "$target" in
-    production) domain=api.lesamis.rw; WEB_PORT=8101 ;;
-    staging) domain=api-staging.lesamis.rw; WEB_PORT=8102 ;;
-    dev) domain=api-dev.lesamis.rw; WEB_PORT=8103 ;;
-    *) die "Unknown deployment environment." ;;
-esac
-
 backup_name=
 case "$mode" in
     receive)
-        [[ $# == 2 ]] || die "Expected a forced SSH command."
-        sha=${SSH_ORIGINAL_COMMAND:-}
+        [[ $# == 1 && ${SSH_ORIGINAL_COMMAND:-} =~ ^(production|staging|dev)\ ([0-9a-f]{40})$ ]] ||
+            die "Expected a deployment environment and full commit SHA."
+        target=${BASH_REMATCH[1]}
+        sha=${BASH_REMATCH[2]}
         ;;
     rollback)
         [[ $# == 3 || $# == 4 ]] && [[ ! ${SSH_ORIGINAL_COMMAND+x} ]] ||
             die "Usage from the VPS console: deploy.sh rollback ENV SHA [BACKUP]"
+        target=$2
         sha=$3
         backup_name=${4:-}
         ;;
     *) die "Expected receive or rollback." ;;
 esac
 is_sha "$sha" || die "Expected a full commit SHA."
+case "$target" in
+    production) domain=api.lesamis.rw; WEB_PORT=8101 ;;
+    staging) domain=api-staging.lesamis.rw; WEB_PORT=8102 ;;
+    dev) domain=api-dev.lesamis.rw; WEB_PORT=8103 ;;
+    *) die "Unknown deployment environment." ;;
+esac
 
 root="/opt/les-amis/$target"
 static_root="/srv/les-amis-static/$target"

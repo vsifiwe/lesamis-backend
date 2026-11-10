@@ -2,11 +2,11 @@
 
 Pushes to `main`, `staging`, and `dev` deploy the Django backend automatically. Next.js continues to deploy from its own repository through Netlify.
 
-| Branch | GitHub Environment | VPS user | API hostname | VPS upstream |
-| --- | --- | --- | --- | --- |
-| `main` | `production` | `lesamis-production` | `api.lesamis.rw` | `127.0.0.1:8101` |
-| `staging` | `staging` | `lesamis-staging` | `api-staging.lesamis.rw` | `127.0.0.1:8102` |
-| `dev` | `dev` | `lesamis-dev` | `api-dev.lesamis.rw` | `127.0.0.1:8103` |
+| Branch | VPS stack | API hostname | VPS upstream |
+| --- | --- | --- | --- |
+| `main` | `production` | `api.lesamis.rw` | `127.0.0.1:8101` |
+| `staging` | `staging` | `api-staging.lesamis.rw` | `127.0.0.1:8102` |
+| `dev` | `dev` | `api-dev.lesamis.rw` | `127.0.0.1:8103` |
 
 ## 1. Prepare the VPS and DNS
 
@@ -21,16 +21,16 @@ sudo install -d -m 0755 /usr/local/lib/les-amis /etc/les-amis /opt/les-amis /srv
 sudo install -m 0755 deployment/deploy.sh /usr/local/lib/les-amis/deploy.sh
 sudo install -m 0644 deployment/compose.yml /usr/local/lib/les-amis/compose.yml
 
+sudo useradd --system --user-group --create-home --shell /bin/bash lesamis-deploy
+sudo usermod -aG docker lesamis-deploy
+sudo passwd lesamis-deploy
+
 for env in production staging dev; do
-  account="lesamis-$env"
-  sudo useradd --system --user-group --create-home --shell /bin/bash "$account"
-  sudo usermod -aG docker "$account"
-  sudo passwd "$account"
-  sudo install -d -m 0700 -o "$account" -g "$account" \
+  sudo install -d -m 0700 -o lesamis-deploy -g lesamis-deploy \
     "/opt/les-amis/$env" "/opt/les-amis/$env/backups"
-  sudo install -d -m 0755 -o "$account" -g "$account" \
+  sudo install -d -m 0755 -o lesamis-deploy -g lesamis-deploy \
     "/srv/les-amis-static/$env" "/srv/les-amis-static/$env/releases"
-  sudo install -m 0640 -o root -g "$account" deployment/app.env.example \
+  sudo install -m 0640 -o root -g lesamis-deploy deployment/app.env.example \
     "/etc/les-amis/$env.env"
 done
 ```
@@ -48,7 +48,7 @@ The server uses its installed deployment script and Compose configuration. Revie
 
 ## 2. Configure password SSH and GitHub
 
-Set a strong, unique password for each deployment account at the `passwd` prompt. The SSH configuration enables password authentication for those accounts and forces each one to run the release command for its own environment. Install and validate it from an administrator session.
+Set one strong password for `lesamis-deploy` at the `passwd` prompt. The SSH configuration restricts that account to the release command. The account can deploy all three stacks. Install and validate the configuration from an administrator session.
 
 ```bash
 sudo install -m 0644 deployment/sshd.conf /etc/ssh/sshd_config.d/60-les-amis-deploy.conf
@@ -56,21 +56,26 @@ sudo sshd -t
 sudo systemctl reload ssh
 ```
 
-Keep the administrator session open while checking access. If you already provisioned the key-based setup, create the three new accounts and set their passwords. While deployments are idle, transfer ownership of each existing `/opt/les-amis/<environment>` and `/srv/les-amis-static/<environment>` tree to its new account and change the group of `/etc/les-amis/<environment>.env` to that account's group. Preserve the existing environment file contents. Replace the old SSH drop-in with the file above.
+Keep the administrator session open while checking access. If migrating from separate deployment accounts, create the shared account and set its password. While deployments are idle, run the following commands, then install the new SSH drop-in and reload SSH as shown above.
 
-In `lesamis-backend`, open **Settings → Environments**. Create the three environments in the table. Set each deployment branch policy to **Selected branches and tags** and add exactly the mapped branch as a branch rule. Leave required reviewers and wait timers unset.
+```bash
+sudo usermod -aG docker lesamis-deploy
+for env in production staging dev; do
+  sudo usermod --lock --expiredate 1970-01-02 "lesamis-$env"
+  sudo chown -hR lesamis-deploy:lesamis-deploy "/opt/les-amis/$env" "/srv/les-amis-static/$env"
+  sudo chgrp lesamis-deploy "/etc/les-amis/$env.env"
+done
+sudo install -m 0755 deployment/deploy.sh /usr/local/lib/les-amis/deploy.sh
+```
+
+In `lesamis-backend`, open **Settings → Environments** and create one environment named `vps`. Set its deployment branch policy to **Selected branches and tags** and add `main`, `staging`, and `dev` as branch rules. Leave required reviewers and wait timers unset.
 
 | Type | Name | Value |
 | --- | --- | --- |
-| Environment secret | `VPS_PASSWORD` | The matching deployment account password |
+| Environment secret | `VPS_PASSWORD` | The password for `lesamis-deploy` |
 | Environment variable | `VPS_HOST` | VPS IP or DNS-only SSH hostname |
 | Environment variable | `VPS_PORT` | SSH port, usually `22` |
-| Environment variable | `VPS_USER` | The matching VPS user from the branch table |
-| Environment variable | `VPS_KNOWN_HOSTS` | A known_hosts line using the server's verified Ed25519 public host key |
-
-Read the public key from `/etc/ssh/ssh_host_ed25519_key.pub` through the trusted VPS console. Prefix the key type and key data with `VPS_HOST` for port 22 or `[VPS_HOST]:VPS_PORT` for any other port. Paste that line into `VPS_KNOWN_HOSTS`.
-
-If switching an existing setup, remove the old `VPS_DEPLOY_KEY` secrets and retire the old `lesamis-deploy` account after confirming the new deployments work.
+The workflow pins the VPS public SSH host key under the alias `les-amis-vps`. If the VPS is rebuilt or its host key rotates, verify the new public key through the VPS console and update the pin in the workflow. After verifying the shared login, remove the old per-environment SSH variables and credentials from GitHub.
 
 ## 3. Roll out and verify
 
@@ -85,13 +90,13 @@ Check the remote branches with `git ls-remote --heads origin main staging dev`. 
 The Actions job reports the failing stage. Read `/opt/les-amis/<environment>/deploy.log` on the VPS for details. The file `/opt/les-amis/<environment>/successful` lists the most recent successful SHA on line one and the previous one, if present, on line two. If a failure happens after services are stopped, the recorded release stays the same and the web and scheduler may be down. Fix the problem and rerun the branch head, or restart a retained image and static files from the VPS console.
 
 ```bash
-sudo -u lesamis-dev /usr/local/lib/les-amis/deploy.sh rollback dev RETAINED_SHA
+sudo -u lesamis-deploy /usr/local/lib/les-amis/deploy.sh rollback dev RETAINED_SHA
 ```
 
 Before running this command, check that the selected code supports the current database schema. If it does not, identify and verify the matching pre-deployment dump in `/opt/les-amis/<environment>/backups`. To explicitly replace the database from that dump, pass its basename as the final argument.
 
 ```bash
-sudo -u lesamis-dev /usr/local/lib/les-amis/deploy.sh rollback dev RETAINED_SHA BACKUP_BASENAME
+sudo -u lesamis-deploy /usr/local/lib/les-amis/deploy.sh rollback dev RETAINED_SHA BACKUP_BASENAME
 ```
 
 The restore takes a fresh backup first, then replaces the selected environment's database. Writes after the selected dump are absent from the restored database. The release keeps two successful images and their static files, plus the seven newest pre-deploy dumps per environment. Keep any required longer-term copies outside the managed backup directory.
