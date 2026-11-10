@@ -1,0 +1,91 @@
+name: Deploy backend to VPS
+
+on:
+  push:
+    branches: [main, staging, dev]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    if: ${{ !github.event.deleted }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: les_amis_ci
+          POSTGRES_USER: les_amis_ci
+          POSTGRES_PASSWORD: les_amis_ci
+        ports:
+          - 5432/tcp
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U les_amis_ci -d les_amis_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.13'
+          cache: pip
+      - run: python -m pip install -r requirements.txt
+      - run: python manage.py test --settings=config.settings
+        env:
+          DB_NAME: les_amis_ci
+          DB_USER: les_amis_ci
+          DB_PASSWORD: les_amis_ci
+          DB_HOST: 127.0.0.1
+          DB_PORT: ${{ job.services.postgres.ports[5432] }}
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    environment:
+      name: ${{ github.ref_name == 'main' && 'production' || github.ref_name }}
+      url: https://${{ github.ref_name == 'main' && 'api' || format('api-{0}', github.ref_name) }}.lesamis.rw
+    concurrency:
+      group: vps-deploy-${{ github.ref_name }}
+      queue: max
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Deploy branch head
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VPS_HOST: ${{ vars.VPS_HOST }}
+          VPS_PORT: ${{ vars.VPS_PORT }}
+          VPS_USER: ${{ vars.VPS_USER }}
+          VPS_KNOWN_HOSTS: ${{ vars.VPS_KNOWN_HOSTS }}
+          VPS_DEPLOY_KEY: ${{ secrets.VPS_DEPLOY_KEY }}
+        run: |
+          : "${VPS_HOST:?}" "${VPS_PORT:?}" "${VPS_USER:?}" "${VPS_KNOWN_HOSTS:?}" "${VPS_DEPLOY_KEY:?}"
+          umask 077
+          ssh_dir=$(mktemp -d)
+          trap 'rm -rf -- "$ssh_dir"' EXIT
+          printf '%s\n' "$VPS_DEPLOY_KEY" > "$ssh_dir/key"
+          printf '%s\n' "$VPS_KNOWN_HOSTS" > "$ssh_dir/known_hosts"
+
+          head_sha=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$GITHUB_REF_NAME" --jq .object.sha)
+          if [[ "$head_sha" != "$GITHUB_SHA" ]]; then
+            echo "::error::Release superseded. $GITHUB_REF_NAME now points to $head_sha."
+            exit 1
+          fi
+
+          git -c tar.umask=0022 archive --format=tar "$GITHUB_SHA" |
+            ssh -T -F /dev/null -i "$ssh_dir/key" -p "$VPS_PORT" -l "$VPS_USER" \
+              -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+              -o "UserKnownHostsFile=$ssh_dir/known_hosts" -o GlobalKnownHostsFile=/dev/null \
+              -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
+              -- "$VPS_HOST" "$GITHUB_SHA"
