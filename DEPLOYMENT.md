@@ -100,7 +100,8 @@ Check the remote branches with `git ls-remote --heads origin main staging dev`. 
 
 - Check `/healthz/`, `/api/v1/docs/`, and `/static/admin/css/base.css` over each public HTTPS hostname. Confirm that unauthenticated requests to `/api/v1/members/` and `/api/v1/fund-accounts/balances/` are rejected. Point the production Netlify build at `NEXT_PUBLIC_API_URL=https://api.lesamis.rw` and confirm login and an API-backed page.
 - On dev, confirm a second push updates only dev and preserves data. To exercise the database connection check, temporarily set `DB_HOST=invalid.invalid` in the dev environment file and rerun the current commit. Restore the original `DB_HOST` and rerun to recover. Verify that an older workflow rerun reports **Release superseded** and that other branch pushes and tags do not deploy.
-- Check that each new database contains its own workbook import. The same historical records are seeded in all three databases. The APIs are publicly reachable and Django protects authenticated endpoints. The committed workbook fixture itself is readable in the public backend repository.
+- Reinstall `deployment/deploy.sh` on the VPS before rolling out the tracker import, using the install command above. Staging and production verify the committed manifest and checksum before stopping services, then run the import after Django migrations. Dev skips the tracker import.
+- Point staging at its fresh database and deploy. Check `/opt/les-amis/staging/deploy.log` for `applied` and confirm the counts and totals under **Import batches** in Django admin. Redeploy the same baseline and confirm `already_applied`, the same batch ID, and identical counts. Repeat the first deployment checks on production after staging passes.
 
 ## 4. Recover a failed release
 

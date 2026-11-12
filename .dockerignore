@@ -10,3 +10,4 @@ __pycache__/
 staticfiles/
 .github/
 deployment/
+/workbook-import/

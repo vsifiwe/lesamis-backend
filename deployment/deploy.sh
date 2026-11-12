@@ -124,6 +124,7 @@ begin() {
     printf '%s | %s | %s\n' "$target" "$sha" "$stage" >&3
 }
 
+workbook_manifest=
 if [[ "$mode" == receive ]]; then
     begin 'receive source'
     cat > "$work/source.tar"
@@ -135,6 +136,21 @@ if [[ "$mode" == receive ]]; then
         tar --extract --file "$work/source.tar" --directory "$work/source" \
             --no-same-owner --no-same-permissions
     )
+
+    if [[ "$target" == staging || "$target" == production ]]; then
+        begin 'verify tracker manifest'
+        workbook_manifest="$work/source/workbook-import/tracker-november-2026.json"
+        workbook_checksum="${workbook_manifest%.json}.sha256"
+        [[ -f "$workbook_manifest" && -r "$workbook_manifest" &&
+           -f "$workbook_checksum" && -r "$workbook_checksum" ]] ||
+            die 'The release must contain the tracker manifest and its checksum.'
+        workbook_sha256=$(< "$workbook_checksum")
+        [[ "$workbook_sha256" =~ ^[0-9a-f]{64}$ ]] ||
+            die 'The tracker checksum must be a lowercase SHA-256 digest.'
+        actual_workbook_sha256=$(sha256sum -- "$workbook_manifest")
+        [[ "${actual_workbook_sha256%% *}" == "$workbook_sha256" ]] ||
+            die 'The tracker manifest does not match the release checksum.'
+    fi
 
     begin 'build image'
     if ! docker image inspect "$APP_IMAGE" >/dev/null 2>&1; then
@@ -172,8 +188,21 @@ cutover_started=true
 compose stop scheduler web </dev/null
 
 if [[ "$mode" == receive ]]; then
-    begin 'migrate and collect static files'
-    compose run --rm --no-deps -T migrate </dev/null
+    begin 'migrate database'
+    compose run --rm --no-deps -T migrate python manage.py migrate --noinput </dev/null
+
+    if [[ -n "$workbook_manifest" ]]; then
+        begin 'import tracker manifest'
+        container_manifest=/run/les-amis-tracker.json
+        compose run --rm --no-deps -T \
+            --volume "$workbook_manifest:$container_manifest:ro" migrate \
+            python manage.py import_workbook "$container_manifest" \
+            --apply --expect-sha256 "$workbook_sha256" --operator "deploy:$target:$sha" \
+            --report /tmp/les-amis-tracker-audit.json </dev/null
+    fi
+
+    begin 'collect static files'
+    compose run --rm --no-deps -T migrate sh -ec 'umask 022; python manage.py collectstatic --noinput' </dev/null
 elif [[ -n "$backup_name" ]]; then
     begin 'restore selected database backup'
     compose exec -T postgres sh -ec '
