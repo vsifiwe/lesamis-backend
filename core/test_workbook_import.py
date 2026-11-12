@@ -115,6 +115,24 @@ class WorkbookPreviewTests(WorkbookCommandFiles, SimpleTestCase):
             'expected': '99.00', 'calculated': '100.00',
         })
 
+    def test_joining_fees_are_included_in_cash_and_assets(self):
+        self.manifest['income'].append({
+            'type': 'joining_fee',
+            'amount': '10.00',
+            'source': self.manifest['contributions'][0]['source'],
+        })
+        self.manifest['targets'].update(
+            joining_fees='10.00', calculated_cash_balance='80.00', expected_total_assets='130.00',
+        )
+        self.manifest['reconciliation'].update(
+            calculated_cash_balance='80.00', expected_total_assets='130.00', variance='-20.00',
+        )
+        self.write_manifest()
+
+        report = self.run_import()
+        self.assertEqual(report['reconciliation']['calculated_totals']['joining_fees'], '10.00')
+        self.assertEqual(report['reconciliation']['discrepancies'], {})
+
     def test_wrong_reviewed_hash_is_rejected_before_connecting(self):
         with self.assertRaisesMessage(CommandError, 'does not match'):
             self.run_import('--apply', '--expect-sha256', '0' * 64, '--operator', 'Test operator')

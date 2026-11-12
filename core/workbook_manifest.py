@@ -12,6 +12,12 @@ FIXTURE_VERSION = 2
 CONTRIBUTION_FUNDS = ('capital', 'social', 'social_plus')
 EXPENSE_FUNDS = ('SOCIAL', 'SOCIAL_PLUS')
 INCOME_TYPES = ('bank_interest', 'joining_fee', 'contribution_penalty', 'loan_exit_penalty')
+INCOME_TOTAL_KEYS = {
+    'bank_interest': 'bank_interest',
+    'joining_fee': 'joining_fees',
+    'contribution_penalty': 'collected_penalties',
+    'loan_exit_penalty': 'collected_penalties',
+}
 
 
 def write_private_json(path, data):
@@ -237,8 +243,7 @@ def manifest_totals(data):
     for row in data['social_expenses']:
         totals['social_expenses' if row['fund'] == 'SOCIAL' else 'social_plus_expenses'] += row['amount']
     for row in data['income']:
-        key = row['type'] if row['type'] in ('bank_interest', 'joining_fee') else 'collected_penalties'
-        totals[key] += row['amount']
+        totals[INCOME_TOTAL_KEYS[row['type']]] += row['amount']
 
     totals['bank_charges'] = sum(row['amount'] for row in data['bank_charges'])
     active = data['loans']['active']

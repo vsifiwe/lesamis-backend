@@ -211,7 +211,7 @@ class WorkbookExtractor:
                 'share_count': self.whole_number(details.cell(row + 1, 22), optional=True),
                 'source': self.source_ref('Details', f'V{row + 1}', f'Join date derived from {sheet.title}!{row_contributions[0]["source"]["cell"]}.'),
             })
-        headers = {'capital': 'Capital', 'social': 'Social', 'social_plus': 'Kwidagadura'}
+        headers = {'capital': {'capital'}, 'social': {'social'}, 'social_plus': {'social+', 'kwidagadura'}}
         column = 3
         for year, month, funds in periods:
             heading = sheet.cell(1, column)
@@ -220,7 +220,7 @@ class WorkbookExtractor:
                 raise CommandError(f'Unexpected month heading at {sheet.title}!{heading.coordinate}.')
             for fund in funds:
                 heading = sheet.cell(2, column)
-                if str(heading.value).strip().lower() != headers[fund].lower():
+                if str(heading.value).replace(' ', '').lower() not in headers[fund]:
                     raise CommandError(f'Unexpected fund heading at {sheet.title}!{heading.coordinate}.')
                 column += 1
         return members, contributions

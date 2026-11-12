@@ -11,3 +11,6 @@ __pycache__/
 .env
 .env.dev
 /staticfiles/
+/workbook-import/*
+!/workbook-import/tracker-november-2026.json
+!/workbook-import/tracker-november-2026.sha256
