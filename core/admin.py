@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.utils.translation import gettext_lazy as _
 
-from .models import BankReconciliationSnapshot, ContributionCycle, ContributionReceipt, ContributionReceiptItem, FundAccount, HistoricalContributionEntry, ImportBatch, IncomeEntry, Investment, InvestmentProfitEntry, LedgerEntry, Loan, LoanProduct, LoanRepayment, LoanRepaymentSchedule, Member, MemberContributionObligation, MemberShareAccount, OtherCharge, Penalty, SocialActivityRecord, SourceReference, SystemConfig, User
+from .models import BankReconciliationSnapshot, ContributionCycle, ContributionReceipt, ContributionReceiptItem, FundAccount, HistoricalContributionEntry, ImportBatch, IncomeEntry, Investment, InvestmentProfitEntry, LedgerEntry, Loan, LoanProduct, LoanRepayment, LoanRepaymentSchedule, Member, MemberContributionObligation, MemberNationalID, MemberShareAccount, OtherCharge, Penalty, SocialActivityRecord, SourceReference, SystemConfig, User
 
 
 @admin.register(ImportBatch)
@@ -62,6 +62,13 @@ class UserAdmin(BaseUserAdmin):
     readonly_fields = ('last_login', 'created_at', 'updated_at')
 
 
+class MemberNationalIDInline(admin.StackedInline):
+    model = MemberNationalID
+    fields = ('nid',)
+    extra = 1
+    max_num = 1
+
+
 @admin.register(Member)
 class MemberAdmin(admin.ModelAdmin):
     list_display  = ('member_number', 'first_name', 'last_name', 'email', 'status', 'join_date')
@@ -69,6 +76,7 @@ class MemberAdmin(admin.ModelAdmin):
     search_fields = ('member_number', 'first_name', 'last_name', 'email')
     ordering      = ('-created_at',)
     readonly_fields = ('member_number', 'created_at', 'updated_at')
+    inlines = (MemberNationalIDInline,)
 
 
 @admin.register(SystemConfig)

@@ -1,13 +1,15 @@
 from decimal import Decimal
 
 from django.contrib.auth.password_validation import validate_password
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import DecimalField, Sum
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 from rest_framework import serializers
+from rest_framework.validators import UniqueValidator
 
-from .models import ContributionCycle, ContributionReceipt, ContributionReceiptItem, Investment, InvestmentProfitEntry, Loan, LoanProduct, LoanRepaymentSchedule, Member, MemberContributionObligation, MemberShareAccount, OtherCharge, Penalty, SocialActivityRecord, SystemConfig, User
+from .models import ContributionCycle, ContributionReceipt, ContributionReceiptItem, Investment, InvestmentProfitEntry, Loan, LoanProduct, LoanRepaymentSchedule, Member, MemberContributionObligation, MemberNationalID, MemberShareAccount, OtherCharge, Penalty, SocialActivityRecord, SystemConfig, User
+from .models.member import NID_DUPLICATE_MESSAGE, NID_UNIQUE_CONSTRAINT, validate_nid
 
 
 def _get_current_share_price() -> int:
@@ -61,18 +63,60 @@ class MemberSerializer(serializers.ModelSerializer):
             return None
 
 
+class MemberDetailSerializer(MemberSerializer):
+    nid = serializers.CharField(source='national_id.nid', read_only=True, allow_null=True)
+
+    class Meta(MemberSerializer.Meta):
+        fields = [*MemberSerializer.Meta.fields, 'nid']
+
+
+class NationalIDField(serializers.CharField):
+    def __init__(self, **kwargs):
+        super().__init__(
+            trim_whitespace=False,
+            max_length=16,
+            validators=[
+                validate_nid,
+                UniqueValidator(
+                    queryset=MemberNationalID.objects.all(),
+                    message=NID_DUPLICATE_MESSAGE,
+                ),
+            ],
+            **kwargs,
+        )
+
+    def to_internal_value(self, data):
+        if not isinstance(data, str):
+            self.fail('invalid')
+        return super().to_internal_value(data)
+
+
+def _save_member_nid(member, nid):
+    try:
+        MemberNationalID.objects.update_or_create(member_id=member.pk, defaults={'nid': nid})
+    except IntegrityError as error:
+        diagnostics = getattr(error.__cause__, 'diag', None)
+        if getattr(diagnostics, 'constraint_name', None) == NID_UNIQUE_CONSTRAINT:
+            raise serializers.ValidationError({'nid': [NID_DUPLICATE_MESSAGE]}) from error
+        raise
+
+
 class CreateMemberSerializer(serializers.ModelSerializer):
     default_password = serializers.CharField(write_only=True, validators=[validate_password])
+    nid = NationalIDField(required=False, allow_null=True, write_only=True)
 
     class Meta:
         model  = Member
-        fields = ['first_name', 'last_name', 'phone', 'email', 'join_date', 'default_password']
+        fields = ['first_name', 'last_name', 'phone', 'email', 'join_date', 'default_password', 'nid']
         extra_kwargs = {
             'email': {'required': True, 'allow_blank': False},
+            'join_date': {'default': timezone.localdate},
         }
 
+    @transaction.atomic
     def create(self, validated_data):
         password = validated_data.pop('default_password')
+        nid = validated_data.pop('nid', None)
         member = Member.objects.create(**validated_data)
         User.objects.create_user(
             email=member.email,
@@ -82,6 +126,20 @@ class CreateMemberSerializer(serializers.ModelSerializer):
             member=member,
         )
         MemberShareAccount.objects.create(member=member)
+        if nid is not None:
+            _save_member_nid(member, nid)
+        return member
+
+
+class UpdateMemberNationalIDSerializer(serializers.Serializer):
+    nid = NationalIDField(allow_null=True)
+
+    def update(self, member, validated_data):
+        nid = validated_data['nid']
+        if nid is None:
+            MemberNationalID.objects.filter(member=member).delete()
+        else:
+            _save_member_nid(member, nid)
         return member
 
 

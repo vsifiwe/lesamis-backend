@@ -13,7 +13,7 @@ from .loan import Loan
 from .loan_product import LoanProduct
 from .loan_repayment import LoanRepayment
 from .loan_repayment_schedule import LoanRepaymentSchedule
-from .member import Member
+from .member import Member, MemberNationalID
 from .member_contribution_obligation import MemberContributionObligation
 from .member_share_account import MemberShareAccount
 from .other_charge import OtherCharge
@@ -41,6 +41,7 @@ __all__ = [
     'LoanRepaymentSchedule',
     'Member',
     'MemberContributionObligation',
+    'MemberNationalID',
     'MemberShareAccount',
     'OtherCharge',
     'Penalty',
