@@ -3,14 +3,16 @@ import json
 import re
 from datetime import date, datetime
 from decimal import Decimal
+from io import BytesIO
 from pathlib import Path
 
 from django.core.management.base import BaseCommand, CommandError
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 
+from core.workbook_manifest import FIXTURE_VERSION, write_private_json
 
-FIXTURE_VERSION = 1
+
 MEMBER_ALIASES = {
     'Chrisitan': 'Christian',
     'Obadias': 'Obadiah',
@@ -48,89 +50,113 @@ def parse_date(value):
 class WorkbookExtractor:
     def __init__(self, source):
         self.source = Path(source)
-        self.values = load_workbook(self.source, data_only=True)
-        self.formulas = load_workbook(self.source, data_only=False)
+        payload = self.source.read_bytes()
+        self.sha256 = hashlib.sha256(payload).hexdigest()
+        self.values = load_workbook(BytesIO(payload), data_only=True)
+        self.formulas = load_workbook(BytesIO(payload), data_only=False)
 
     def source_ref(self, sheet, cell, notes=''):
         value_cell = self.values[sheet][cell]
         formula_cell = self.formulas[sheet][cell]
         if isinstance(value_cell, tuple):
-            values = [item.value for row in value_cell for item in row]
-            formulas = [item.value for row in formula_cell for item in row]
+            values = {item.coordinate: item.value for row in value_cell for item in row}
+            formulas = {
+                item.coordinate: item.value for row in formula_cell for item in row if item.data_type == 'f'
+            }
             value = json.dumps(values, default=str, ensure_ascii=False)
-            formula = json.dumps(formulas, default=str, ensure_ascii=False)
+            formula = json.dumps(formulas, ensure_ascii=False) if formulas else ''
         else:
             value = value_cell.value
-            formula = formula_cell.value
+            formula = formula_cell.value if formula_cell.data_type == 'f' else ''
         return {
             'sheet': sheet,
             'cell': cell,
-            'formula': formula if isinstance(formula, str) and formula.startswith('=') else '',
+            'formula': formula,
             'value': '' if value is None else str(value),
             'notes': notes,
         }
 
+    def number(self, cell, *, optional=False):
+        formula = self.formulas[cell.parent.title][cell.coordinate]
+        value = cell.value
+        if value is None and optional and formula.data_type != 'f':
+            return Decimal('0')
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise CommandError(f'Expected a saved number at {cell.parent.title}!{cell.coordinate}.')
+        return Decimal(str(value))
+
+    def amount(self, cell, *, optional=False):
+        return decimal_string(self.number(cell, optional=optional))
+
+    def whole_number(self, cell, *, optional=False):
+        value = self.number(cell, optional=optional)
+        if value < 0 or value != int(value):
+            raise CommandError(f'Expected a whole number at {cell.parent.title}!{cell.coordinate}.')
+        return int(value)
+
     def extract(self):
         summary = self.values["Vue d'Ensemble"]
-        declared = datetime.strptime(summary['B3'].value.replace('Ku wa ', ''), '%d/%m/%Y').date()
+        declared = parse_date(str(summary['B3'].value).removeprefix('Ku wa '))
         members, contributions = self.extract_contributions()
         loans = self.extract_loans()
         social_expenses = self.extract_social_expenses()
+        dated_records = loans['active'] + social_expenses
+        target_cells = {
+            'contribution_capital': 'C15',
+            'contribution_social': 'C6',
+            'contribution_social_plus': 'C9',
+            'social_expenses': 'C7',
+            'social_plus_expenses': 'C10',
+            'bank_interest': 'C16',
+            'joining_fees': 'C17',
+            'collected_penalties': 'C18',
+            'bank_charges': 'C19',
+            'loan_principal': 'C22',
+            'loan_interest': 'C23',
+            'loan_repayments': 'C24',
+            'calculated_cash_balance': 'C39',
+            'expected_total_assets': 'C40',
+        }
+        targets = {key: self.amount(summary[cell]) for key, cell in target_cells.items()}
+        targets.update(
+            active_loan_principal=self.amount(self.values['Details de credits']['G52']),
+            active_loan_outstanding=self.amount(self.values['Details de credits']['L52']),
+            investments=decimal_string(sum(self.number(summary[cell]) for cell in ('C27', 'C29', 'C31', 'C33'))),
+            investment_profits=decimal_string(sum(self.number(summary[cell]) for cell in ('C28', 'C30', 'C32', 'C34'))),
+            shares=self.whole_number(self.values['Details']['V53']),
+        )
         return {
             'fixture_version': FIXTURE_VERSION,
             'source_name': self.source.name,
-            'source_sha256': hashlib.sha256(self.source.read_bytes()).hexdigest(),
-            'declared_summary_date': declared.isoformat(),
-            'latest_transaction_date': max(
-                parse_date(row['date']) for row in loans['active'] if row['date']
-            ),
+            'source_sha256': self.sha256,
+            'declared_summary_date': declared,
+            'latest_transaction_date': max((row['date'] for row in dated_records if row['date']), default=None),
             'members': members,
             'contributions': contributions,
             'loans': loans,
             'social_expenses': social_expenses,
             'income': self.extract_income(),
             'bank_charges': [{
-                'amount': decimal_string(summary['C19'].value),
+                'amount': targets['bank_charges'],
                 'description': summary['B19'].value,
                 'date': None,
                 'date_precision': 'unknown',
-                'source': self.source_ref("Vue d'Ensemble", 'C19'),
+                'source': self.source_ref(summary.title, 'C19'),
             }],
             'investments': self.extract_investments(),
             'reconciliation': {
-                'as_of_date': declared.isoformat(),
-                'calculated_cash_balance': decimal_string(summary['C39'].value),
-                'stated_bank_balance': decimal_string(summary['E39'].value),
-                'variance': decimal_string(summary['G39'].value),
-                'expected_total_assets': decimal_string(summary['C40'].value),
-                'source': self.source_ref("Vue d'Ensemble", 'C39', 'Calculated cash; E39 is stated bank balance and G39 is variance.'),
+                'as_of_date': None,
+                'calculated_cash_balance': targets['calculated_cash_balance'],
+                'stated_bank_balance': self.amount(summary['E39']),
+                'variance': self.amount(summary['G39']),
+                'expected_total_assets': targets['expected_total_assets'],
+                'source': self.source_ref(summary.title, 'C39:G40'),
             },
-            'targets': {
-                'contribution_capital': decimal_string(summary['C15'].value),
-                'contribution_social': decimal_string(summary['C6'].value),
-                'contribution_social_plus': decimal_string(summary['C9'].value),
-                'social_expenses': decimal_string(summary['C7'].value),
-                'social_plus_expenses': decimal_string(summary['C10'].value),
-                'bank_interest': decimal_string(summary['C16'].value),
-                'joining_fees': decimal_string(summary['C17'].value),
-                'collected_penalties': decimal_string(summary['C18'].value),
-                'bank_charges': decimal_string(summary['C19'].value),
-                'loan_principal': decimal_string(summary['C22'].value),
-                'loan_interest': decimal_string(summary['C23'].value),
-                'loan_repayments': decimal_string(summary['C24'].value),
-                'active_loan_principal': decimal_string(self.values['Details de credits']['G52'].value),
-                'active_loan_outstanding': decimal_string(self.values['Details de credits']['L52'].value),
-                'investments': decimal_string(sum(Decimal(x['amount']) for x in self.extract_investments())),
-                'investment_profits': decimal_string(sum(Decimal(p['amount']) for x in self.extract_investments() for p in x['profits'])),
-                'calculated_cash_balance': decimal_string(summary['C39'].value),
-                'expected_total_assets': decimal_string(summary['C40'].value),
-                'shares': int(self.values['Details']['V53'].value),
-            },
+            'targets': targets,
         }
 
     def extract_contributions(self):
         sheet = self.values['Contribution Individuel Mensuel']
-        formula_sheet = self.formulas['Contribution Individuel Mensuel']
         periods = []
         year = 2020
         month = 8
@@ -145,10 +171,14 @@ class WorkbookExtractor:
         details = self.values['Details']
         members = []
         contributions = []
-        column = 3
         for row in range(3, 52):
             source_name = sheet.cell(row, 2).value
+            if not isinstance(source_name, str) or not source_name.strip():
+                raise CommandError(f'Expected a member name at {sheet.title}!B{row}.')
+            detail_name = details.cell(row + 1, 3).value
             canonical = MEMBER_ALIASES.get(source_name, source_name)
+            if MEMBER_ALIASES.get(detail_name, detail_name) != canonical:
+                raise CommandError(f'Member and share rows disagree at {sheet.title}!B{row}.')
             first_period = None
             member_number = f'MBR-{row - 2:04d}'
             row_contributions = []
@@ -156,24 +186,20 @@ class WorkbookExtractor:
             for period_year, period_month, funds in periods:
                 for offset, fund in enumerate(funds):
                     cell = sheet.cell(row, scan_column + offset)
-                    if cell.value not in (None, 0):
+                    amount = self.number(cell, optional=True)
+                    if amount:
                         first_period = first_period or date(period_year, period_month, 1)
-                        formula_cell = formula_sheet[cell.coordinate]
                         row_contributions.append({
                             'member_number': member_number,
                             'year': period_year,
                             'month': period_month,
                             'fund': fund,
-                            'amount': decimal_string(cell.value),
-                            'source': {
-                                'sheet': sheet.title,
-                                'cell': cell.coordinate,
-                                'formula': formula_cell.value if isinstance(formula_cell.value, str) and formula_cell.value.startswith('=') else '',
-                                'value': str(cell.value),
-                                'notes': '',
-                            },
+                            'amount': decimal_string(amount),
+                            'source': self.source_ref(sheet.title, cell.coordinate),
                         })
                 scan_column += len(funds)
+            if first_period is None:
+                raise CommandError(f'No contribution month available to derive a join date at {sheet.title}!B{row}.')
             contributions.extend(row_contributions)
             members.append({
                 'member_number': member_number,
@@ -181,10 +207,22 @@ class WorkbookExtractor:
                 'first_name': canonical,
                 'last_name': '',
                 'aliases': sorted(set([source_name]) - {canonical}),
-                'join_date': (first_period or date(2026, 1, 1)).isoformat(),
-                'share_count': int(details.cell(row + 1, 22).value or 0),
-                'source': self.source_ref('Details', f'V{row + 1}'),
+                'join_date': first_period.isoformat(),
+                'share_count': self.whole_number(details.cell(row + 1, 22), optional=True),
+                'source': self.source_ref('Details', f'V{row + 1}', f'Join date derived from {sheet.title}!{row_contributions[0]["source"]["cell"]}.'),
             })
+        headers = {'capital': 'Capital', 'social': 'Social', 'social_plus': 'Kwidagadura'}
+        column = 3
+        for year, month, funds in periods:
+            heading = sheet.cell(1, column)
+            label = str(heading.value).lower().replace('/', ' ').split()
+            if not label or FRENCH_MONTHS.get(label[0]) != month or (len(label) > 1 and label[-1] != str(year)):
+                raise CommandError(f'Unexpected month heading at {sheet.title}!{heading.coordinate}.')
+            for fund in funds:
+                heading = sheet.cell(2, column)
+                if str(heading.value).strip().lower() != headers[fund].lower():
+                    raise CommandError(f'Unexpected fund heading at {sheet.title}!{heading.coordinate}.')
+                column += 1
         return members, contributions
 
     def extract_loans(self):
@@ -196,15 +234,15 @@ class WorkbookExtractor:
             if not source_name:
                 continue
             canonical = MEMBER_ALIASES.get(source_name, source_name)
-            total_principal = Decimal(str(sheet.cell(row, 4).value or 0))
-            total_interest = Decimal(str(sheet.cell(row, 5).value or 0))
-            total_paid = Decimal(str(sheet.cell(row, 6).value or 0))
-            active_principal = Decimal(str(sheet.cell(row, 7).value or 0))
-            duration = int(sheet.cell(row, 8).value or 0)
-            rate_fraction = Decimal(str(sheet.cell(row, 9).value or 0))
+            total_principal = self.number(sheet.cell(row, 4), optional=True)
+            total_interest = self.number(sheet.cell(row, 5), optional=True)
+            total_paid = self.number(sheet.cell(row, 6), optional=True)
+            active_principal = self.number(sheet.cell(row, 7), optional=True)
+            duration = self.whole_number(sheet.cell(row, 8), optional=True)
+            rate_fraction = self.number(sheet.cell(row, 9), optional=True)
             active_interest = active_principal * rate_fraction
-            active_paid = Decimal(str(sheet.cell(row, 11).value or 0))
-            active_outstanding = Decimal(str(sheet.cell(row, 12).value or 0))
+            active_paid = self.number(sheet.cell(row, 11), optional=True)
+            active_outstanding = self.number(sheet.cell(row, 12), optional=True)
             if active_principal:
                 active.append({
                     'member_name': canonical,
@@ -227,7 +265,7 @@ class WorkbookExtractor:
                     'principal': decimal_string(opening_principal),
                     'interest': decimal_string(opening_interest),
                     'paid': decimal_string(opening_paid),
-                    'source': self.source_ref('Details de credits', f'D{row}:F{row}'),
+                    'source': self.source_ref('Details de credits', f'D{row}:L{row}', 'Aggregate totals less the active loan amounts.'),
                 })
         return {'active': active, 'historical': historical}
 
@@ -247,16 +285,16 @@ class WorkbookExtractor:
             ('SOCIAL_PLUS', 'U70', 'Avance sortie 27 Janvier 2024'), ('SOCIAL_PLUS', 'U72', 'Inama 11 Gicurasi 2024'),
         ]
         for fund, cell, name in details_sources:
-            value = self.values['Details'][cell].value
+            amount = self.amount(self.values['Details'][cell])
             rows.append({'fund': fund, 'date': None, 'date_precision': 'unknown', 'category': 'support' if fund == 'SOCIAL' else 'event',
-                         'name': name, 'amount': decimal_string(value), 'source': self.source_ref('Details', cell)})
+                         'name': name, 'amount': amount, 'source': self.source_ref('Details', cell)})
         rows.append({'fund': 'SOCIAL_PLUS', 'date': None, 'date_precision': 'unknown', 'category': 'event',
                      'name': 'Kwidagadura hardcoded expenses', 'amount': decimal_string(1948000),
                      'source': self.source_ref("Vue d'Ensemble", 'C10', 'Hardcoded formula constants total 1,948,000.')})
         social = self.values['Social Loisirs']
         for row in range(3, 23):
             for fund, date_col, name_col, amount_col in [('SOCIAL', 1, 2, 3), ('SOCIAL_PLUS', 5, 6, 7)]:
-                amount = social.cell(row, amount_col).value
+                amount = self.number(social.cell(row, amount_col), optional=True)
                 if amount:
                     rows.append({
                         'fund': fund, 'date': parse_date(social.cell(row, date_col).value), 'date_precision': 'exact',
@@ -270,39 +308,52 @@ class WorkbookExtractor:
         details = self.values['Details']
         summary = self.values["Vue d'Ensemble"]
         return [
-            {'type': 'bank_interest', 'amount': decimal_string(summary['C16'].value), 'source': self.source_ref("Vue d'Ensemble", 'C16')},
-            {'type': 'joining_fee', 'amount': decimal_string(summary['C17'].value), 'source': self.source_ref("Vue d'Ensemble", 'C17')},
-            {'type': 'contribution_penalty', 'amount': decimal_string(details['H53'].value), 'source': self.source_ref('Details', 'H53')},
-            {'type': 'loan_exit_penalty', 'amount': decimal_string(details['J53'].value), 'source': self.source_ref('Details', 'J53')},
+            {'type': 'bank_interest', 'amount': self.amount(summary['C16']), 'source': self.source_ref("Vue d'Ensemble", 'C16')},
+            {'type': 'joining_fee', 'amount': self.amount(summary['C17']), 'source': self.source_ref("Vue d'Ensemble", 'C17')},
+            {'type': 'contribution_penalty', 'amount': self.amount(details['H53']), 'source': self.source_ref('Details', 'H53')},
+            {'type': 'loan_exit_penalty', 'amount': self.amount(details['J53']), 'source': self.source_ref('Details', 'J53')},
         ]
 
     def extract_investments(self):
-        return [
-            {'name': 'BRD Sustainability Bond August 2024', 'type': 'bond', 'date': '2024-08-01', 'amount': decimal_string(20000000),
-             'rate': '12.90', 'vesting_months': 84, 'source': self.source_ref("Vue d'Ensemble", 'C27'),
-             'profits': [{'date': d, 'amount': decimal_string(1225500), 'source': self.source_ref("Vue d'Ensemble", 'C28')} for d in ('2025-03-31', '2025-09-30', '2026-03-31')]},
-            {'name': 'Treasury Bond April 2025', 'type': 'bond', 'date': '2025-04-01', 'amount': decimal_string(10000000),
-             'rate': '12.15', 'vesting_months': 120, 'source': self.source_ref("Vue d'Ensemble", 'C29'),
-             'profits': [{'date': d, 'amount': decimal_string(607500), 'source': self.source_ref("Vue d'Ensemble", 'C30')} for d in ('2025-10-31', '2026-04-30')]},
-            {'name': 'Treasury Bond May 2025', 'type': 'bond', 'date': '2025-05-01', 'amount': decimal_string(self.values["Vue d'Ensemble"]['C31'].value),
-             'rate': '13.27', 'vesting_months': 240, 'source': self.source_ref("Vue d'Ensemble", 'C31'),
-             'profits': [{'date': d, 'amount': decimal_string(729850), 'source': self.source_ref("Vue d'Ensemble", 'C32')} for d in ('2025-06-30', '2025-12-31')]},
-            {'name': 'Treasury Bond Jan 2026', 'type': 'bond', 'date': '2026-01-01', 'amount': decimal_string(10000000),
-             'rate': '12.15', 'vesting_months': 120, 'source': self.source_ref("Vue d'Ensemble", 'C33'), 'profits': []},
+        summary = self.values["Vue d'Ensemble"]
+        bonds = [
+            (27, 'BRD Sustainability Bond August 2024', '2024-08-01', '12.90', 84),
+            (29, 'Treasury Bond April 2025', '2025-04-01', '12.15', 120),
+            (31, 'Treasury Bond May 2025', '2025-05-01', '13.27', 240),
+            (33, 'Treasury Bond Jan 2026', '2026-01-01', '12.15', 120),
         ]
+        investments = []
+        for row, name, month, rate, term in bonds:
+            amount_cell = f'C{row}'
+            profit_cell = f'C{row + 1}'
+            profit = self.amount(summary[profit_cell])
+            investments.append({
+                'name': name, 'type': 'bond', 'date': month, 'rate': rate, 'vesting_months': term,
+                'amount': self.amount(summary[amount_cell]),
+                'source': self.source_ref(summary.title, f'B{row}:C{row}', 'Purchase month from workbook label.'),
+                'profits': [{
+                    'date': None, 'amount': profit, 'source': self.source_ref(summary.title, profit_cell),
+                }] if Decimal(profit) else [],
+            })
+        return investments
 
 
 class Command(BaseCommand):
-    help = 'Extract the authoritative workbook into a deterministic normalized JSON fixture.'
+    help = 'Extract the tracker into a deterministic normalized JSON manifest.'
 
     def add_arguments(self, parser):
         parser.add_argument('workbook')
-        parser.add_argument('--output', default='core/fixtures/workbook_import_v1.json')
+        parser.add_argument('--output', required=True, type=Path)
 
     def handle(self, *args, **options):
-        extractor = WorkbookExtractor(options['workbook'])
-        data = extractor.extract()
-        output = Path(options['output'])
-        output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text(json.dumps(data, indent=2, sort_keys=True, ensure_ascii=False) + '\n', encoding='utf-8')
-        self.stdout.write(self.style.SUCCESS(f'Wrote normalized fixture to {output}'))
+        output = options['output']
+        source = Path(options['workbook'])
+        legacy_fixture = Path(__file__).resolve().parents[2] / 'fixtures' / 'workbook_import_v1.json'
+        if output.resolve() in (source.resolve(), legacy_fixture):
+            raise CommandError('Choose an output path separate from the workbook and archived fixture.')
+        try:
+            data = WorkbookExtractor(source).extract()
+            write_private_json(output, data)
+        except (OSError, KeyError, ValueError) as exc:
+            raise CommandError(f'Cannot extract workbook: {exc}') from exc
+        self.stdout.write(self.style.SUCCESS(f'Wrote workbook manifest to {output}'))

@@ -5,6 +5,8 @@ from django.db.models import Count, DecimalField, F, Q, Sum
 from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from django.utils.decorators import method_decorator
+from django.views.decorators.cache import never_cache
 from drf_yasg.utils import swagger_auto_schema
 from rest_framework.pagination import CursorPagination
 from rest_framework import status
@@ -32,6 +34,7 @@ from .serializers import (
     MemberContributionObligationSerializer,
     MemberContributionPendingSerializer,
     MemberContributionReceivedSerializer,
+    MemberDetailSerializer,
     MemberSharePurchaseSerializer,
     MemberLoanSerializer,
     MemberPenaltySerializer,
@@ -41,6 +44,7 @@ from .serializers import (
     PenaltySerializer,
     SocialActivityRecordSerializer,
     CreateSocialActivityRecordSerializer,
+    UpdateMemberNationalIDSerializer,
 )
 
 
@@ -76,12 +80,27 @@ class MemberListCreateView(APIView):
         return Response(MemberSerializer(member).data, status=status.HTTP_201_CREATED)
 
 
+@method_decorator(never_cache, name='dispatch')
 class MemberDetailView(APIView):
     permission_classes = [IsAdminUser]
 
+    @swagger_auto_schema(responses={200: MemberDetailSerializer})
     def get(self, request, pk):
-        member = get_object_or_404(Member, pk=pk)
-        return Response(MemberSerializer(member).data)
+        member = get_object_or_404(Member.objects.select_related('share_account', 'national_id'), pk=pk)
+        return Response(MemberDetailSerializer(member).data)
+
+    @swagger_auto_schema(
+        request_body=UpdateMemberNationalIDSerializer,
+        responses={200: MemberDetailSerializer},
+        operation_summary='Update a member’s national ID',
+        operation_description='Set the member’s national ID, or send null to clear it.',
+    )
+    @transaction.atomic
+    def patch(self, request, pk):
+        member = get_object_or_404(Member.objects.select_for_update(), pk=pk)
+        serializer = UpdateMemberNationalIDSerializer(member, data=request.data)
+        serializer.is_valid(raise_exception=True)
+        return Response(MemberDetailSerializer(serializer.save()).data)
 
 
 class MemberDeactivateView(APIView):

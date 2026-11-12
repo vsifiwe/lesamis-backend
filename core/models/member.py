@@ -1,7 +1,14 @@
 import uuid
 
+from django.core.validators import RegexValidator
 from django.db import models
 from django.utils import timezone
+
+
+NID_PATTERN = r'^[0-9]{16}\Z'
+NID_UNIQUE_CONSTRAINT = 'unique_member_nid'
+NID_DUPLICATE_MESSAGE = 'This national ID is already assigned to a member.'
+validate_nid = RegexValidator(NID_PATTERN, 'Enter exactly 16 digits.')
 
 
 class Member(models.Model):
@@ -39,3 +46,21 @@ class Member(models.Model):
 
     def get_full_name(self):
         return f'{self.first_name} {self.last_name}'.strip()
+
+
+class MemberNationalID(models.Model):
+    member = models.OneToOneField(
+        Member, on_delete=models.CASCADE, primary_key=True, related_name='national_id',
+    )
+    nid = models.CharField('national ID', max_length=16, validators=[validate_nid])
+
+    class Meta:
+        verbose_name = 'member national ID'
+        verbose_name_plural = 'member national IDs'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['nid'], name=NID_UNIQUE_CONSTRAINT,
+                violation_error_message=NID_DUPLICATE_MESSAGE,
+            ),
+            models.CheckConstraint(condition=models.Q(nid__regex=NID_PATTERN), name='member_nid_format'),
+        ]
