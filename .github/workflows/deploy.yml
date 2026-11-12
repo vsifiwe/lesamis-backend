@@ -1,0 +1,62 @@
+name: Deploy backend to VPS
+
+on:
+  push:
+    branches: [main, staging, dev]
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    if: ${{ !github.event.deleted }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    environment:
+      name: vps
+      url: https://${{ github.ref_name == 'main' && 'api' || format('api-{0}', github.ref_name) }}.lesamis.rw
+    concurrency:
+      group: vps-deploy-${{ github.ref_name }}
+      queue: max
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Deploy branch head
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VPS_HOST: ${{ vars.VPS_HOST }}
+          VPS_PORT: ${{ vars.VPS_PORT }}
+          VPS_PASSWORD: ${{ secrets.VPS_PASSWORD }}
+        run: |
+          : "${VPS_HOST:?}" "${VPS_PORT:?}" "${VPS_PASSWORD:?}"
+          umask 077
+          ssh_dir=$(mktemp -d)
+          trap 'rm -rf -- "$ssh_dir"' EXIT
+          printf '%s\n' 'les-amis-vps ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILSVn/AIT2lq5h4EYmjPekeD69rclY96slkIOTMllVSc' > "$ssh_dir/known_hosts"
+          printf '%s\n' '#!/bin/sh' 'printf "%s\n" "$VPS_PASSWORD"' > "$ssh_dir/askpass"
+          chmod 700 "$ssh_dir/askpass"
+
+          head_sha=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$GITHUB_REF_NAME" --jq .object.sha)
+          if [[ "$head_sha" != "$GITHUB_SHA" ]]; then
+            echo "::error::Release superseded. $GITHUB_REF_NAME now points to $head_sha."
+            exit 1
+          fi
+
+          case "$GITHUB_REF_NAME" in
+            main) target=production ;;
+            staging|dev) target=$GITHUB_REF_NAME ;;
+            *) exit 1 ;;
+          esac
+          git -c tar.umask=0022 archive --format=tar "$GITHUB_SHA" |
+            SSH_ASKPASS="$ssh_dir/askpass" SSH_ASKPASS_REQUIRE=force \
+            ssh -T -F /dev/null -p "$VPS_PORT" -l lesamis-deploy \
+              -o PreferredAuthentications=password -o PubkeyAuthentication=no \
+              -o NumberOfPasswordPrompts=1 -o StrictHostKeyChecking=yes \
+              -o HostKeyAlias=les-amis-vps \
+              -o "UserKnownHostsFile=$ssh_dir/known_hosts" -o GlobalKnownHostsFile=/dev/null \
+              -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
+              -- "$VPS_HOST" "$target" "$GITHUB_SHA"
