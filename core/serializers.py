@@ -609,6 +609,8 @@ class InvestmentProfitEntrySerializer(serializers.ModelSerializer):
 
 
 class CreateInvestmentProfitEntrySerializer(serializers.ModelSerializer):
+    profit_date = serializers.DateField()
+
     class Meta:
         model  = InvestmentProfitEntry
         fields = ['profit_date', 'amount', 'gross_amount', 'withholding_tax_amount', 'is_net_coupon_income', 'description']

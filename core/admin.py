@@ -5,14 +5,25 @@ from django.utils.translation import gettext_lazy as _
 from .models import BankReconciliationSnapshot, ContributionCycle, ContributionReceipt, ContributionReceiptItem, FundAccount, HistoricalContributionEntry, ImportBatch, IncomeEntry, Investment, InvestmentProfitEntry, LedgerEntry, Loan, LoanProduct, LoanRepayment, LoanRepaymentSchedule, Member, MemberContributionObligation, MemberNationalID, MemberShareAccount, OtherCharge, Penalty, SocialActivityRecord, SourceReference, SystemConfig, User
 
 
+class ReadOnlyImportAdmin(admin.ModelAdmin):
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
 @admin.register(ImportBatch)
-class ImportBatchAdmin(admin.ModelAdmin):
+class ImportBatchAdmin(ReadOnlyImportAdmin):
     list_display = ('source_name', 'fixture_version', 'declared_summary_date', 'latest_transaction_date', 'imported_at')
-    readonly_fields = ('source_sha256', 'imported_at')
+    readonly_fields = ('source_sha256', 'manifest_sha256', 'operator', 'audit_summary', 'imported_at')
 
 
 @admin.register(SourceReference)
-class SourceReferenceAdmin(admin.ModelAdmin):
+class SourceReferenceAdmin(ReadOnlyImportAdmin):
     list_display = ('entity_type', 'sheet_name', 'cell_reference', 'import_batch')
     list_filter = ('entity_type', 'sheet_name')
     search_fields = ('entity_id', 'source_value', 'notes')

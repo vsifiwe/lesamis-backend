@@ -604,7 +604,7 @@ class DashboardSummaryView(APIView):
             unpaid_penalties_total +
             investment_projection_total
         )
-        bank_reconciliation = BankReconciliationSnapshot.objects.order_by('-as_of_date').first()
+        bank_reconciliation = BankReconciliationSnapshot.objects.first()
         expected_total = (
             bank_reconciliation.expected_total_assets
             if bank_reconciliation is not None
