@@ -1,0 +1,22 @@
+(les_amis_api) {
+	encode zstd gzip
+	handle_path /static/* {
+		root * /srv/les-amis-static/{args[0]}/current
+		file_server
+	}
+	handle {
+		reverse_proxy 127.0.0.1:{args[1]}
+	}
+}
+
+api.lesamis.rw {
+	import les_amis_api production 8101
+}
+
+api-staging.lesamis.rw {
+	import les_amis_api staging 8102
+}
+
+api-dev.lesamis.rw {
+	import les_amis_api dev 8103
+}

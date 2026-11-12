@@ -7,3 +7,6 @@ __pycache__/
 .git/
 .gitignore
 *.sqlite3
+staticfiles/
+.github/
+deployment/

@@ -15,7 +15,11 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 from django.contrib import admin
+from django.db import DatabaseError, connection
+from django.http import JsonResponse
 from django.urls import include, path
+from django.views.decorators.cache import never_cache
+from django.views.decorators.http import require_safe
 from drf_yasg import openapi
 from drf_yasg.views import get_schema_view
 from rest_framework.permissions import AllowAny
@@ -31,7 +35,19 @@ schema_view = get_schema_view(
     authentication_classes=[],
 )
 
+@never_cache
+@require_safe
+def health(request):
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute('SELECT 1')
+    except DatabaseError:
+        return JsonResponse({'status': 'unavailable'}, status=503)
+    return JsonResponse({'status': 'ok'})
+
+
 urlpatterns = [
+    path('healthz/', health, name='health'),
     path('admin/', admin.site.urls),
     path('api/v1/', include('core.urls')),
 
