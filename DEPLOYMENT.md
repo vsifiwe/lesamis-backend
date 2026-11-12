@@ -35,7 +35,7 @@ for env in production staging dev; do
 done
 ```
 
-Edit the three files under `/etc/les-amis`. Generate a distinct `SECRET_KEY` and `DB_PASSWORD` for each with `openssl rand -hex 32`. Set `ALLOWED_HOSTS` to the matching hostname in the table and `CSRF_TRUSTED_ORIGINS` to the matching HTTPS origin. For production set `CORS_ALLOWED_ORIGINS=https://lesamis.rw,https://www.lesamis.rw`. In staging and dev, allow only the actual frontend origins used for testing. Keep `DB_HOST=postgres` and keep each database's credentials stable after initial deployment.
+Edit the three files under `/etc/les-amis`. Generate a distinct `SECRET_KEY` for each with `openssl rand -hex 32`. Set `ALLOWED_HOSTS` to the matching hostname in the table and `CSRF_TRUSTED_ORIGINS` to the matching HTTPS origin. For production set `CORS_ALLOWED_ORIGINS=https://lesamis.rw,https://www.lesamis.rw`. In staging and dev, allow only the actual frontend origins used for testing. For the bundled PostgreSQL container, keep `DB_HOST=postgres` and generate a distinct `DB_PASSWORD` for each database. Keep those credentials stable after initialization.
 
 ```bash
 sudo install -m 0644 deployment/Caddyfile /etc/caddy/Caddyfile
@@ -45,6 +45,23 @@ sudo systemctl reload caddy
 ```
 
 The server uses its installed deployment script and Compose configuration. Review and reinstall those files as an administrator when changing the deployment infrastructure. Access to the Docker group is equivalent to administrative access, so restrict pushes to all three deployment branches to trusted maintainers.
+
+### Use Supabase for an environment
+
+Open the Supabase project's **Connect** panel. Use the direct connection if the VPS can reach it, or use **Session pooler** on port `5432` for an IPv4-only VPS. For example, put the session pooler values in `/etc/les-amis/staging.env`.
+
+```dotenv
+DB_HOST=<session pooler hostname from Connect>
+DB_PORT=5432
+DB_NAME=postgres
+DB_USER=postgres.<project-ref>
+DB_PASSWORD='<raw database password>'
+PGSSLMODE=require
+```
+
+The direct endpoint typically uses `postgres` as the username. Copy the host and username from the selected connection. Use a separate database for each deployment environment.
+
+With an external `DB_HOST`, the script checks the connection before stopping application services. Use Supabase backups for that database. The deployment applies Django migrations to the configured database. Transfer any existing application data you need from the bundled database before switching. On an existing VPS, reinstall the updated `deployment/deploy.sh` using the install command above, then rerun the latest deployment for the branch.
 
 ## 2. Configure password SSH and GitHub
 
@@ -82,7 +99,7 @@ The workflow pins the VPS public SSH host key under the alias `les-amis-vps`. If
 Check the remote branches with `git ls-remote --heads origin main staging dev`. Put the reviewed workflow and application commit on `dev` first, creating the branch if absent. Then promote the commit to `staging` and finally `main`. Use the existing branch history when a branch already exists.
 
 - Check `/healthz/`, `/api/v1/docs/`, and `/static/admin/css/base.css` over each public HTTPS hostname. Confirm that unauthenticated requests to `/api/v1/members/` and `/api/v1/fund-accounts/balances/` are rejected. Point the production Netlify build at `NEXT_PUBLIC_API_URL=https://api.lesamis.rw` and confirm login and an API-backed page.
-- On dev, confirm a second push updates only dev and preserves data. To exercise the remote migration failure path, temporarily set `DB_HOST=invalid.invalid` in the dev environment file and rerun the current commit. Restore `DB_HOST=postgres` and rerun to recover. Verify that an older workflow rerun reports **Release superseded** and that other branch pushes and tags do not deploy.
+- On dev, confirm a second push updates only dev and preserves data. To exercise the database connection check, temporarily set `DB_HOST=invalid.invalid` in the dev environment file and rerun the current commit. Restore the original `DB_HOST` and rerun to recover. Verify that an older workflow rerun reports **Release superseded** and that other branch pushes and tags do not deploy.
 - Check that each new database contains its own workbook import. The same historical records are seeded in all three databases. The APIs are publicly reachable and Django protects authenticated endpoints. The committed workbook fixture itself is readable in the public backend repository.
 
 ## 4. Recover a failed release
@@ -93,7 +110,7 @@ The Actions job reports the failing stage. Read `/opt/les-amis/<environment>/dep
 sudo -u lesamis-deploy /usr/local/lib/les-amis/deploy.sh rollback dev RETAINED_SHA
 ```
 
-Before running this command, check that the selected code supports the current database schema. If it does not, identify and verify the matching pre-deployment dump in `/opt/les-amis/<environment>/backups`. To explicitly replace the database from that dump, pass its basename as the final argument.
+Before running this command, check that the selected code supports the current database schema. For an external database, use the database provider to restore a compatible backup if needed. For the bundled PostgreSQL database, identify and verify the matching pre-deployment dump in `/opt/les-amis/<environment>/backups` if you need to restore it. To explicitly replace the bundled database from that dump, pass its basename as the final argument.
 
 ```bash
 sudo -u lesamis-deploy /usr/local/lib/les-amis/deploy.sh rollback dev RETAINED_SHA BACKUP_BASENAME

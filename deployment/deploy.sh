@@ -146,14 +146,26 @@ else
     [[ -f "$STATIC_DIR/admin/css/base.css" ]] || die "Retained static files are missing."
 fi
 
-begin 'start and back up PostgreSQL'
-compose up -d --wait --wait-timeout 90 postgres </dev/null
-compose exec -T postgres sh -ec 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' \
-    </dev/null > "$work/backup.dump"
-compose exec -T postgres pg_restore --list < "$work/backup.dump" >/dev/null
-backup_path="$root/backups/$(date -u +%Y%m%dT%H%M%S%N)-before-$sha.dump"
-mv -- "$work/backup.dump" "$backup_path"
-backup_created=true
+begin 'read configured database host'
+database_host=$(compose run --rm --no-deps -T migrate sh -ec '
+    printf "%s\n" "${DB_HOST:?Set DB_HOST in the application environment}"
+' </dev/null)
+
+if [[ "$database_host" == postgres ]]; then
+    begin 'start and back up PostgreSQL'
+    compose up -d --wait --wait-timeout 90 postgres </dev/null
+    compose exec -T postgres sh -ec 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' \
+        </dev/null > "$work/backup.dump"
+    compose exec -T postgres pg_restore --list < "$work/backup.dump" >/dev/null
+    backup_path="$root/backups/$(date -u +%Y%m%dT%H%M%S%N)-before-$sha.dump"
+    mv -- "$work/backup.dump" "$backup_path"
+    backup_created=true
+else
+    [[ -z "$backup_name" ]] || die 'Use your database provider to restore an external PostgreSQL backup.'
+    begin 'check external PostgreSQL connection'
+    compose run --rm --no-deps -T -e PGCONNECT_TIMEOUT=10 migrate \
+        python manage.py showmigrations --plan </dev/null >/dev/null
+fi
 
 begin 'stop application services'
 cutover_started=true
