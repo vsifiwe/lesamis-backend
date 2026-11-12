@@ -816,7 +816,7 @@ def _get_obligation_amount_outstanding(obligation) -> Decimal:
 
 
 def _resolve_advance_payment_obligations(member, months_ahead):
-    from .tasks import _month_sequence, ensure_contribution_obligation, ensure_cycle
+    from .tasks import _month_sequence, ensure_contribution_obligation, ensure_cycle, first_live_contribution_month
 
     config = SystemConfig.objects.first()
     if config is None:
@@ -826,7 +826,8 @@ def _resolve_advance_payment_obligations(member, months_ahead):
     resolved = []
     seen_cycles = set()
 
-    for year, month in _month_sequence(today.year, today.month, months_ahead):
+    start_year, start_month = first_live_contribution_month(today.year, today.month)
+    for year, month in _month_sequence(start_year, start_month, months_ahead):
         cycle, _ = ensure_cycle(year, month, config)
         obligation, _ = ensure_contribution_obligation(member, cycle, config)
         if obligation.obligation_type != MemberContributionObligation.ObligationType.CONTRIBUTION:

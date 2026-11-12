@@ -6,7 +6,15 @@ from background_task import background
 from django.db.models import Sum
 from django.utils import timezone
 
-from .models import ContributionCycle, Member, MemberContributionObligation, MemberShareAccount, Penalty, SystemConfig
+from .models import (
+    ContributionCycle,
+    HistoricalContributionEntry,
+    Member,
+    MemberContributionObligation,
+    MemberShareAccount,
+    Penalty,
+    SystemConfig,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +32,14 @@ def _next_month(year, month):
     if month == 12:
         return year + 1, 1
     return year, month + 1
+
+
+def first_live_contribution_month(year, month):
+    imported_month = (
+        HistoricalContributionEntry.objects.order_by('-year', '-month')
+        .values_list('year', 'month').first()
+    )
+    return max((year, month), _next_month(*imported_month)) if imported_month else (year, month)
 
 
 def _month_sequence(start_year, start_month, count):
@@ -196,11 +212,11 @@ def generate_monthly_cycle():
     today = timezone.now().date()
     year, month = today.year, today.month
 
-    cycle, created = ensure_cycle(year, month, config)
-
-    if created:
-        ensure_cycle_share_price(cycle)
-        _generate_obligations(cycle, config)
+    if first_live_contribution_month(year, month) == (year, month):
+        cycle, created = ensure_cycle(year, month, config)
+        if created:
+            ensure_cycle_share_price(cycle)
+            _generate_obligations(cycle, config)
 
     generate_monthly_cycle(schedule=_first_of_next_month())
 
